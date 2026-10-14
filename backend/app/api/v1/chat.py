@@ -1,0 +1,392 @@
+import uuid
+from datetime import datetime
+from typing import Optional, List
+
+from fastapi import APIRouter, HTTPException, Cookie
+
+from app.core.security import decode_token
+from app.core.supabase import get_supabase
+from app.schemas.chat import (
+    SendMessage,
+    ChatMessage,
+    DialogOut,
+    DialogStatus,
+    SenderRole,
+    CallPsychologistRequest,
+    CallPsychologistResponse,
+    ReplyMessage,
+)
+from app.services.bot_operator import process_chat_message
+from app.services.alerts import notify_emergency
+
+router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+ANONYMOUS_USER_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _is_valid_uuid(val: Optional[str]) -> bool:
+    if not val:
+        return False
+    try:
+        uuid.UUID(str(val))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _get_or_create_dialog(sb, student_id: str) -> dict:
+    """Get active dialog or create a new one."""
+    if not _is_valid_uuid(student_id):
+        student_id = ANONYMOUS_USER_ID
+
+    try:
+        existing = (
+            sb.table("dialogs")
+            .select("*")
+            .eq("student_id", student_id)
+            .neq("status", DialogStatus.CLOSED.value)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return existing.data[0]
+    except Exception:
+        pass
+
+    dialog_id = str(uuid.uuid4())
+    now_iso = datetime.utcnow().isoformat()
+    new_dialog = {
+        "id": dialog_id,
+        "student_id": student_id,
+        "status": DialogStatus.BOT.value,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    try:
+        result = sb.table("dialogs").insert(new_dialog).execute()
+        if result.data:
+            return result.data[0]
+    except Exception:
+        pass
+
+    return new_dialog
+
+
+def _save_message(sb, dialog_id: str, sender_role: SenderRole, content: str) -> dict:
+    msg_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    msg = {
+        "id": msg_id,
+        "dialog_id": dialog_id,
+        "sender_role": sender_role.value,
+        "content": content,
+        "created_at": now,
+    }
+    try:
+        sb.table("chat_messages").insert(msg).execute()
+    except Exception:
+        pass
+
+    try:
+        sb.table("dialogs").update({"updated_at": now}).eq("id", dialog_id).execute()
+    except Exception:
+        pass
+    return msg
+
+
+# ─── Send message ─────────────────────────────────────────────────────────────
+@router.post("/message")
+async def send_message(
+    payload: SendMessage,
+    access_token: Optional[str] = Cookie(None),
+):
+    student_id = payload.student_id
+    if not student_id and access_token:
+        token_data = decode_token(access_token)
+        if token_data:
+            student_id = token_data.get("sub")
+
+    if not student_id or not _is_valid_uuid(student_id):
+        student_id = ANONYMOUS_USER_ID
+
+    sb = get_supabase()
+    dialog = _get_or_create_dialog(sb, student_id)
+    dialog_id = dialog["id"]
+    current_status = dialog["status"]
+
+    # Save student message
+    _save_message(sb, dialog_id, SenderRole.STUDENT, payload.content)
+
+    # Process message through AISezim router (Level 1 Red Flags, Level 2/3 Soft Escalation, Box Breathing, FAQ)
+    bot_result = process_chat_message(payload.content)
+    bot_reply = bot_result["reply"]
+    is_crisis = bot_result.get("is_crisis", False)
+    suggest_appointment = bot_result.get("suggest_appointment", False)
+    quick_actions = bot_result.get("quick_actions", [])
+
+    if is_crisis:
+        current_status = DialogStatus.WAITING_PSYCHOLOGIST.value
+        sb.table("dialogs").update(
+            {"status": DialogStatus.WAITING_PSYCHOLOGIST.value, "updated_at": datetime.utcnow().isoformat()}
+        ).eq("id", dialog_id).execute()
+
+        # Trigger emergency alert for school psychologist
+        await notify_emergency(
+            "CRISIS_RED_FLAG_DETECTED",
+            {
+                "dialog_id": dialog_id,
+                "student_id": student_id,
+                "content": payload.content,
+            },
+        )
+
+    # Save bot response
+    _save_message(sb, dialog_id, SenderRole.BOT, bot_reply)
+
+    return {
+        "dialog_id": dialog_id,
+        "status": current_status,
+        "reply": bot_reply,
+        "is_crisis": is_crisis,
+        "suggest_appointment": suggest_appointment,
+        "quick_actions": quick_actions,
+    }
+
+
+# ─── Psychologist reply to student ───────────────────────────────────────────
+@router.post("/reply", response_model=ChatMessage)
+async def reply_message(payload: ReplyMessage):
+    """Psychologist responds to an open student dialog."""
+    sb = get_supabase()
+
+    # Save message as PSYCHOLOGIST
+    saved_msg = _save_message(sb, payload.dialog_id, SenderRole.PSYCHOLOGIST, payload.content)
+
+    # Update dialog status to ACTIVE
+    sb.table("dialogs").update(
+        {"status": DialogStatus.ACTIVE.value, "updated_at": datetime.utcnow().isoformat()}
+    ).eq("id", payload.dialog_id).execute()
+
+    return ChatMessage(
+        id=saved_msg["id"],
+        dialog_id=saved_msg["dialog_id"],
+        sender_role=SenderRole(saved_msg["sender_role"]),
+        content=saved_msg["content"],
+        created_at=saved_msg["created_at"],
+    )
+
+
+# ─── Call psychologist ────────────────────────────────────────────────────────
+@router.post("/call-psychologist", response_model=CallPsychologistResponse)
+async def call_psychologist(
+    payload: CallPsychologistRequest,
+    access_token: Optional[str] = Cookie(None),
+):
+    student_id = payload.student_id
+    if not student_id and access_token:
+        token_data = decode_token(access_token)
+        if token_data:
+            student_id = token_data.get("sub")
+    if not student_id or not _is_valid_uuid(student_id):
+        student_id = ANONYMOUS_USER_ID
+
+    sb = get_supabase()
+    dialog = _get_or_create_dialog(sb, student_id)
+    dialog_id = dialog["id"]
+
+    # Update dialog status
+    try:
+        sb.table("dialogs").update(
+            {"status": DialogStatus.WAITING_PSYCHOLOGIST.value, "updated_at": datetime.utcnow().isoformat()}
+        ).eq("id", dialog_id).execute()
+    except Exception:
+        pass
+
+    # Trigger emergency notification
+    await notify_emergency(
+        "WAITING_PSYCHOLOGIST",
+        {
+            "dialog_id": dialog_id,
+            "student_id": student_id,
+        },
+    )
+
+    # Save system message
+    _save_message(
+        sb,
+        dialog_id,
+        SenderRole.BOT,
+        "Запрос психологу отправлен. Специалист подключится в ближайшее время. Пожалуйста, ожидайте.",
+    )
+
+    return CallPsychologistResponse(
+        dialog_id=dialog_id,
+        status=DialogStatus.WAITING_PSYCHOLOGIST,
+    )
+
+
+# ─── Get messages by dialog_id (strictly by dialog_id without users join) ──────
+@router.get("/dialog/{dialog_id}/messages", response_model=List[ChatMessage])
+@router.get("/messages/{dialog_id}", response_model=List[ChatMessage])
+async def get_dialog_messages(dialog_id: str):
+    """
+    Get all messages for a specific dialog strictly by dialog_id.
+    Does not require a user profile or any foreign key joins.
+    """
+    sb = get_supabase()
+    try:
+        messages_result = (
+            sb.table("chat_messages")
+            .select("*")
+            .eq("dialog_id", dialog_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+    except Exception:
+        messages_result = type("res", (), {"data": []})()
+
+    return [
+        ChatMessage(
+            id=m["id"],
+            dialog_id=m["dialog_id"],
+            sender_role=SenderRole(m["sender_role"]),
+            content=m["content"],
+            created_at=m["created_at"],
+        )
+        for m in (messages_result.data or [])
+    ]
+
+
+# ─── Get chat history ─────────────────────────────────────────────────────────
+@router.get("/history/{identifier}", response_model=DialogOut)
+async def get_chat_history(identifier: str):
+    """
+    Get chat history by either student_id or dialog_id.
+    Always returns the complete array of messages.
+    """
+    sb = get_supabase()
+    dialog = None
+
+    # 1. Try finding by dialog id first
+    try:
+        d_res = sb.table("dialogs").select("*").eq("id", identifier).limit(1).execute()
+        if d_res.data:
+            dialog = d_res.data[0]
+    except Exception:
+        pass
+
+    # 2. If not found by dialog id, try by student_id
+    if not dialog:
+        student_id = identifier if _is_valid_uuid(identifier) else ANONYMOUS_USER_ID
+        try:
+            d_res = (
+                sb.table("dialogs")
+                .select("*")
+                .eq("student_id", student_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if d_res.data:
+                dialog = d_res.data[0]
+        except Exception:
+            pass
+
+    if not dialog:
+        # Fallback dummy dialog if none found
+        dialog_id = identifier if _is_valid_uuid(identifier) else str(uuid.uuid4())
+        return DialogOut(
+            id=dialog_id,
+            student_id=ANONYMOUS_USER_ID,
+            status=DialogStatus.BOT,
+            student_name="Анонимді оқушы",
+            is_anonymous=True,
+            created_at=datetime.utcnow(),
+            messages=[],
+        )
+
+    try:
+        messages_result = (
+            sb.table("chat_messages")
+            .select("*")
+            .eq("dialog_id", dialog["id"])
+            .order("created_at", desc=False)
+            .execute()
+        )
+    except Exception:
+        messages_result = type("res", (), {"data": []})()
+
+    messages = [
+        ChatMessage(
+            id=m["id"],
+            dialog_id=m["dialog_id"],
+            sender_role=SenderRole(m["sender_role"]),
+            content=m["content"],
+            created_at=m["created_at"],
+        )
+        for m in (messages_result.data or [])
+    ]
+
+    is_anon = dialog["student_id"] == ANONYMOUS_USER_ID
+    student_name = "Анонимді оқушы" if is_anon else None
+    if not is_anon and not student_name:
+        try:
+            u_res = sb.table("users").select("full_name").eq("id", dialog["student_id"]).execute()
+            if u_res.data:
+                student_name = u_res.data[0].get("full_name")
+        except Exception:
+            pass
+
+    return DialogOut(
+        id=dialog["id"],
+        student_id=dialog["student_id"],
+        status=DialogStatus(dialog["status"]),
+        student_name=student_name or ("Анонимді оқушы" if is_anon else dialog["student_id"]),
+        is_anonymous=is_anon,
+        created_at=dialog["created_at"],
+        messages=messages,
+    )
+
+
+# ─── List dialogs waiting for psychologist ────────────────────────────────────
+@router.get("/waiting", response_model=List[DialogOut])
+async def get_waiting_dialogs():
+    sb = get_supabase()
+    result = (
+        sb.table("dialogs")
+        .select("*")
+        .eq("status", DialogStatus.WAITING_PSYCHOLOGIST.value)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    dialog_list = result.data or []
+
+    # Batch lookup user names
+    student_ids = [d["student_id"] for d in dialog_list if d["student_id"] != ANONYMOUS_USER_ID]
+    user_names = {}
+    if student_ids:
+        try:
+            u_res = sb.table("users").select("id, full_name").in_("id", student_ids).execute()
+            for u in (u_res.data or []):
+                user_names[u["id"]] = u["full_name"]
+        except Exception:
+            pass
+
+    return [
+        DialogOut(
+            id=d["id"],
+            student_id=d["student_id"],
+            status=DialogStatus(d["status"]),
+            student_name=(
+                "Анонимді оқушы"
+                if d["student_id"] == ANONYMOUS_USER_ID
+                else user_names.get(d["student_id"], d["student_id"])
+            ),
+            is_anonymous=(d["student_id"] == ANONYMOUS_USER_ID),
+            created_at=d["created_at"],
+        )
+        for d in dialog_list
+    ]
+

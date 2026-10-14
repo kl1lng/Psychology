@@ -1,0 +1,36 @@
+# Local credentials and environment configuration
+.env
+.env.*
+!.env.example
+!**/.env.example
+!.env.local.example
+!**/.env.local.example
+CREDENTIALS.txt
+
+# Dependencies and generated output
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+venv/
+.venv/
+**/venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.tsbuildinfo
+coverage/
+dist/
+build/
+
+# Local recordings and runtime artifacts
+frontend/recordings/
+backend/app/static/*
+!backend/app/static/.gitkeep
+playwright-report/
+test-results/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,252 @@
+// ============================================================
+// AISezim — Prisma Database Schema
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── ROLES & ENUMS ───────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  PSYCHOLOGIST
+  TEACHER
+  STUDENT
+  GUEST
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DialogStatus {
+  BOT
+  WAITING_PSYCHOLOGIST
+  ACTIVE
+  CLOSED
+}
+
+enum SenderRole {
+  STUDENT
+  BOT
+  PSYCHOLOGIST
+}
+
+enum SlotStatus {
+  AVAILABLE
+  BOOKED
+  COMPLETED
+  CANCELLED
+}
+
+// ─── DEPARTMENTS (КАФЕДРЫ) ───────────────────────────────────
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String   // e.g. "Математика, Информатика, Физика"
+  code      String   @unique // e.g. "MIPH2026"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relationships: One-to-Many with teacher users
+  teachers User[] @relation("DepartmentTeachers")
+
+  @@map("departments")
+}
+
+// ─── USERS ───────────────────────────────────────────────────
+
+model User {
+  id            String      @id @default(uuid())
+  email         String?     @unique
+  fullName      String      @map("full_name")
+  passwordHash  String?     @map("password_hash")
+  role          Role        @default(STUDENT)
+  classId       String?     @map("class_id") // for students e.g. "10A"
+  departmentId  String?     @map("department_id") // for teachers
+  department    Department? @relation("DepartmentTeachers", fields: [departmentId], references: [id], onDelete: SetNull)
+  pointsBalance Int         @default(0) @map("points_balance")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at")
+
+  // Relationships
+  assessmentResults  AssessmentResult[]
+  moodEntries        MoodEntry[]
+  dialogs            Dialog[]
+  chatMessages       ChatMessage[]
+  notesGiven         PsychologistNote[]  @relation("PsychologistNotes")
+  studentSlots       ConsultationSlot[]  @relation("StudentSlots")
+  psychologistSlots  ConsultationSlot[]  @relation("PsychologistSlots")
+  qaQuestions        QaQuestion[]        @relation("StudentQuestions")
+  qaAnswers          QaQuestion[]        @relation("PsychologistAnswers")
+
+  @@index([role])
+  @@index([classId])
+  @@index([departmentId])
+  @@map("users")
+}
+
+// ─── ASSESSMENT RESULTS (TEST RESULTS) ────────────────────────
+
+model AssessmentResult {
+  id           String             @id @default(uuid())
+  studentId    String             @map("student_id")
+  student      User?              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  testId       String             @map("test_id")
+  testName     String             @map("test_name")
+  riskLevel    RiskLevel          @default(LOW) @map("risk_level")
+  rewardPoints Int                @default(0) @map("reward_points")
+  answersJson  Json?              @map("answers_json")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  // Detailed responses for teachers/psychologists inspection
+  responses    QuestionResponse[]
+
+  @@index([studentId])
+  @@index([riskLevel])
+  @@index([testId])
+  @@map("assessment_results")
+}
+
+// ─── QUESTION RESPONSES (ДЕТАЛИЗАЦИЯ ОТВЕТОВ) ────────────────
+
+model QuestionResponse {
+  id             String           @id @default(uuid())
+  testResultId   String           @map("test_result_id")
+  testResult     AssessmentResult @relation(fields: [testResultId], references: [id], onDelete: Cascade)
+  questionId     String           @map("question_id")
+  selectedOption String           @map("selected_option") // "A", "B", "C", or answer text
+  score          Int              @default(0)
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([testResultId])
+  @@index([questionId])
+  @@map("question_responses")
+}
+
+// ─── MOOD ENTRIES ─────────────────────────────────────────────
+
+model MoodEntry {
+  id          String   @id @default(uuid())
+  studentId   String   @map("student_id")
+  student     User?    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  stressLevel Int      @map("stress_level") // 1-10
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@index([createdAt])
+  @@map("mood_entries")
+}
+
+// ─── DIALOGS ─────────────────────────────────────────────────
+
+model Dialog {
+  id        String       @id @default(uuid())
+  studentId String       @map("student_id")
+  student   User?        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status    DialogStatus @default(BOT)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at")
+
+  messages  ChatMessage[]
+
+  @@index([studentId])
+  @@index([status])
+  @@map("dialogs")
+}
+
+// ─── CHAT MESSAGES ───────────────────────────────────────────
+
+model ChatMessage {
+  id         String     @id @default(uuid())
+  dialogId   String     @map("dialog_id")
+  dialog     Dialog     @relation(fields: [dialogId], references: [id], onDelete: Cascade)
+  senderRole SenderRole @map("sender_role")
+  content    String
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  @@index([dialogId])
+  @@map("chat_messages")
+}
+
+// ─── PODCASTS ─────────────────────────────────────────────────
+
+model Podcast {
+  id              String   @id @default(uuid())
+  title           String
+  description     String?
+  fileUrl         String   @map("file_url")
+  storagePath     String   @map("storage_path")
+  durationSeconds Int?     @map("duration_seconds")
+  uploadedBy      String?  @map("uploaded_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("podcasts")
+}
+
+// ─── PSYCHOLOGIST NOTES ───────────────────────────────────────
+
+model PsychologistNote {
+  id             String   @id @default(uuid())
+  studentId      String   @map("student_id")
+  psychologistId String   @map("psychologist_id")
+  psychologist   User     @relation("PsychologistNotes", fields: [psychologistId], references: [id], onDelete: Cascade)
+  note           String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([studentId])
+  @@index([psychologistId])
+  @@map("psychologist_notes")
+}
+
+// ─── CONSULTATION SLOTS ───────────────────────────────────────
+
+model ConsultationSlot {
+  id             String     @id @default(uuid())
+  psychologistId String     @map("psychologist_id")
+  psychologist   User       @relation("PsychologistSlots", fields: [psychologistId], references: [id], onDelete: Cascade)
+  studentId      String?    @map("student_id")
+  student        User?      @relation("StudentSlots", fields: [studentId], references: [id], onDelete: SetNull)
+  slotTime       DateTime   @map("slot_time")
+  status         SlotStatus @default(AVAILABLE)
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  @@index([psychologistId])
+  @@index([studentId])
+  @@index([status])
+  @@map("consultation_slots")
+}
+
+// ─── Q&A QUESTIONS ───────────────────────────────────────────
+
+model QaQuestion {
+  id             String    @id @default(uuid())
+  studentId      String    @map("student_id")
+  student        User?     @relation("StudentQuestions", fields: [studentId], references: [id], onDelete: Cascade)
+  title          String
+  content        String
+  category       String
+  answer         String?
+  psychologistId String?   @map("psychologist_id")
+  psychologist   User?     @relation("PsychologistAnswers", fields: [psychologistId], references: [id], onDelete: SetNull)
+  isPublished    Boolean   @default(false) @map("is_published")
+  likesCount     Int       @default(0) @map("likes_count")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  answeredAt     DateTime? @map("answered_at")
+
+  @@index([isPublished])
+  @@index([category])
+  @@index([studentId])
+  @@map("qa_questions")
+}
