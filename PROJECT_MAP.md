@@ -1,5 +1,7 @@
 # Project Overview
 
+VPS deployment on servers with an existing Nginx uses `docker-compose.nginx.yml` and the isolated Compose project name `aiseezim2`; frontend is bound only to `127.0.0.1:8080`. `ops/start-vps.sh` selects this configuration. The optional Caddy profile remains for a server where Caddy can own ports 80/443.
+
 AISezim — существующая школьная платформа психологической поддержки: тестирование, настроение, чат, обращения к психологу, Q&A, подкасты и административный интерфейс. Локальная разработка и изолированные проверки: 2026-10-15. Production и реальные БД не проверялись.
 
 Stack: Next.js 15.1 / React 19 / TypeScript / Tailwind; FastAPI / Pydantic; self-hosted PostgreSQL + PostgREST и файловое хранилище в Docker volumes. Два приложения: `frontend/` и `backend/`. Backend обращается к приватному PostgREST API через общий клиент `core/database.py`; отдельного ORM/repository слоя нет. Prisma-схемы описывают модели, но runtime Prisma dependency в frontend manifest отсутствует. Compose разворачивает чистую локальную БД; облачные данные не импортируются.

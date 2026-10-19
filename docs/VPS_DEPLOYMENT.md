@@ -12,13 +12,13 @@
 
 ## VPS с доменом и HTTPS
 
-1. Установите Docker Engine и Compose plugin на Ubuntu VPS, откройте входящие TCP 80/443 (и UDP 443 для HTTP/3). Не открывайте PostgreSQL 5432 и PostgREST 3001.
+1. Установите Docker Engine и Compose plugin на Ubuntu VPS, откройте входящие TCP 80/443. Не открывайте PostgreSQL 5432 и PostgREST 3001.
 2. Разместите рабочую копию проекта на VPS разрешённым способом. Укажите A/AAAA-запись домена на IP сервера.
 3. Создайте `.env` из `.env.example`, установите случайные секреты и свой домен. В Linux для каждого секрета можно создать значение командой `openssl rand -hex 32`. Не используйте одинаковые секреты и не загружайте `.env` в Git.
-4. Выполните `bash ops/start-vps.sh`. Скрипт проверит Docker и конфигурацию Compose, соберёт образы, дождётся healthcheck приложения и покажет состояние контейнеров. Альтернативно запустите `docker compose --profile vps up --build -d --wait --wait-timeout 180`.
-5. Проверьте `docker compose ps`, `docker compose logs --tail=100 backend frontend caddy` и страницу `https://<ваш-домен>/`.
+4. Если сервер уже использует Nginx на 80/443, настройте его TLS virtual host на `proxy_pass http://127.0.0.1:8080`, затем выполните `bash ops/start-vps.sh`. Скрипт использует отдельный Compose project `aiseezim2`, публикует frontend только на loopback, соберёт образы, дождётся healthcheck и покажет состояние контейнеров. Для нового сервера без Nginx используйте профиль Caddy: `docker compose --profile vps up --build -d --wait --wait-timeout 180`.
+5. Для Nginx-профиля проверьте `docker compose -p aisezim2 -f docker-compose.yml -f docker-compose.nginx.yml ps`, логи backend/frontend и страницу `https://<ваш-домен>/`.
 
-Caddy завершит HTTPS и проксирует только веб-приложение. FastAPI опубликован на loopback сервера для диагностики и недоступен напрямую из интернета; вызовы интерфейса проходят через Next.js proxy.
+Caddy завершит HTTPS в профиле `vps`. Если HTTPS уже завершает системный Nginx, файл `docker-compose.nginx.yml` публикует Next.js только на `127.0.0.1:8080`; существующий Nginx сохраняет сертификаты и проксирует веб-приложение. FastAPI опубликован на loopback сервера для диагностики и недоступен напрямую из интернета; PostgreSQL/PostgREST остаются во внутренней Docker-сети.
 
 ## Данные и резервное копирование
 

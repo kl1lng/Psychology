@@ -16,13 +16,14 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-docker compose config --quiet
-docker compose --profile vps up --build -d --wait --wait-timeout 180
-docker compose ps
+compose=(docker compose -p aisezim2 -f docker-compose.yml -f docker-compose.nginx.yml)
+"${compose[@]}" config --quiet
+"${compose[@]}" up --build -d --wait --wait-timeout 180
+"${compose[@]}" ps
 
 domain="$(sed -n 's/^DOMAIN=//p' .env | tail -n 1 | tr -d '\r')"
 if [[ -n "$domain" && "$domain" != "localhost" && "$domain" != "your-domain.example" ]]; then
-  printf '\nAISezim is starting at https://%s\n' "$domain"
+  printf '\nAISezim is available at https://%s through the host Nginx reverse proxy.\n' "$domain"
 else
   printf '\nAISezim containers are running. Configure a public domain and TLS before opening it to users.\n'
 fi
