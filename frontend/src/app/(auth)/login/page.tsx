@@ -47,7 +47,7 @@ export default function LoginPage() {
     setGuestLoading(true);
     try {
       await guestLogin();
-      router.push('/tests');
+      router.push('/chat');
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'response' in err
         ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail)

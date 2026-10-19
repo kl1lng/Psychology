@@ -6,7 +6,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Home,
   ClipboardList,
-  Heart,
   MessageCircle,
   Headphones,
   Trophy,
@@ -44,7 +43,6 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   const localizedNavItems = [
     { href: '/',            label: t.sidebar.home,      icon: Home },
     { href: '/tests',       label: t.sidebar.tests,     icon: ClipboardList },
-    { href: '/mood',        label: t.sidebar.mood,      icon: Heart },
     { href: '/self-help',   label: t.sidebar.selfHelp,  icon: Wind },
     { href: '/qa',          label: t.sidebar.qa,        icon: HelpCircle },
     { href: '/chat',        label: t.sidebar.chat,      icon: MessageCircle },
@@ -55,7 +53,6 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   const mobileNavItems = [
     { href: '/',          label: lang === 'kk' ? 'Басты бет' : 'Главная', icon: Home },
     { href: '/tests',     label: lang === 'kk' ? 'Тесттер' : 'Тесты',   icon: ClipboardList },
-    { href: '/mood',      label: lang === 'kk' ? 'Көңіл-күй' : 'Настроение', icon: Heart },
     { href: '/self-help', label: lang === 'kk' ? 'Өзін-өзі' : 'Самопомощь', icon: Wind },
     { href: '/chat',      label: lang === 'kk' ? 'Чат' : 'Чат',         icon: MessageCircle },
   ];
@@ -284,7 +281,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar (5 main tabs: Home, Tests, Mood, Self-help, Chat) */}
+      {/* Mobile Bottom Navigation Bar (4 main tabs: Home, Tests, Self-help, Chat) */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 dark:bg-[#121214]/95 backdrop-blur-md border-t border-gray-200 dark:border-zinc-800 flex md:hidden items-center justify-around h-16 px-1 safe-bottom shadow-lg transition-colors duration-300">
         {mobileNavItems.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || (href !== '/' && pathname.startsWith(href));

@@ -23,6 +23,11 @@ const nextConfig = {
       { source: '/static/:path*', destination: `${backend}/static/:path*` },
     ];
   },
+  async redirects() {
+    return [
+      { source: '/mood', destination: '/', permanent: false },
+    ];
+  },
   async headers() {
     return [
       {
