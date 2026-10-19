@@ -9,6 +9,7 @@ CREDENTIALS.txt
 
 # Dependencies and generated output
 node_modules/
+.worktrees/
 **/node_modules/
 .next/
 **/.next/
