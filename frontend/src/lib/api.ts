@@ -118,6 +118,8 @@ export const chatApi = {
     api.get(`/api/v1/chat/dialog/${dialogId}/messages`),
   getWaiting: () =>
     api.get('/api/v1/chat/waiting'),
+  searchArchive: (params: { from?: string; to?: string; student_id?: string; status?: string; limit?: number; offset?: number }) =>
+    api.get('/api/v1/chat/archive', { params }),
 };
 
 // ─── Appointments ────────────────────────────────────────────────────────────

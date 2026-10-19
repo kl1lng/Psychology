@@ -15,6 +15,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState(false);
   const [status, setStatus] = useState<DialogStatus>('BOT');
   const [typing, setTyping] = useState(false);
   const [quickActions, setQuickActions] = useState<string[]>([]);
@@ -105,6 +106,7 @@ export default function ChatPage() {
     const content = input.trim();
     setInput('');
     setSending(true);
+    setSendError(false);
     setQuickActions([]);
 
     const tempId = `temp_${Date.now()}`;
@@ -153,6 +155,7 @@ export default function ChatPage() {
       }
     } catch {
       setTyping(false);
+      setSendError(true);
     } finally {
       setSending(false);
     }
@@ -285,6 +288,9 @@ export default function ChatPage() {
 
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl space-y-4 mb-2 p-3.5 sm:p-6 shadow-sm">
+        {sendError && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          {lang === 'kk' ? 'Хабарламаның сақталғаны расталмады. Қайта жібермес бұрын тарихты тексеріңіз.' : 'Не удалось подтвердить сохранение сообщения. Проверьте историю перед повторной отправкой.'}
+        </p>}
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700/50 flex items-center justify-center mb-4 text-zinc-500 dark:text-zinc-400">

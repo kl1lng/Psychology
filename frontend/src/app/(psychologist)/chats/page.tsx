@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { MessageSquare, Clock, User, ChevronRight, Send, BellRing, CheckCircle2, Bot } from 'lucide-react';
 
 import { LogoIcon } from '@/components/ui/logo-icon';
@@ -17,6 +18,7 @@ export default function ChatsPage() {
   const [loading, setLoading] = useState(true);
   const [replyInput, setReplyInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [replyError, setReplyError] = useState(false);
   const [hasNewAlert, setHasNewAlert] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queueLoaded = useRef(false);
@@ -141,6 +143,7 @@ export default function ChatsPage() {
     const content = replyInput.trim();
     setReplyInput('');
     setSending(true);
+    setReplyError(false);
 
     // Optimistic UI message
     const tempMessage: ChatMessage = {
@@ -157,6 +160,7 @@ export default function ChatsPage() {
       await chatApi.reply(selected.id, content);
     } catch (err) {
       console.error('Failed to send reply:', err);
+      setReplyError(true);
     } finally {
       setSending(false);
     }
@@ -170,7 +174,7 @@ export default function ChatsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="section-title">
             {lang === 'kk' ? 'Оқушылар өтініштері' : 'Обращения учеников'}
@@ -181,13 +185,22 @@ export default function ChatsPage() {
               : 'Очередь обращений автоматически обновляется каждые несколько секунд'}
           </p>
         </div>
+        <div className="flex items-center gap-3">
+        <Link href="/chats/archive" className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
+          {lang === 'kk' ? 'Чаттар мұрағаты' : 'Архив переписок'}
+        </Link>
         {hasNewAlert && (
           <div className="flex items-center gap-2 bg-risk-critical/15 border border-risk-critical/30 text-risk-critical px-3 py-1.5 rounded-full text-xs font-semibold animate-pulse">
             <BellRing size={14} />
             <span>{lang === 'kk' ? 'Жаңа шұғыл өтініш!' : 'Новое обращение!'}</span>
           </div>
         )}
+        </div>
       </div>
+
+      {replyError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        {lang === 'kk' ? 'Жауаптың сақталғаны расталмады. Мұрағаттан тексеріңіз.' : 'Не удалось подтвердить сохранение ответа. Проверьте архив перед повторной отправкой.'}
+      </p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* List of Waiting Dialogs (4 cols) */}

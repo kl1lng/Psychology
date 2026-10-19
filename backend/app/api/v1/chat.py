@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional, List
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.security import get_current_psychologist, get_current_user
 from app.core.database import get_database
@@ -49,8 +50,8 @@ def _get_or_create_dialog(sb, student_id: str) -> dict:
         )
         if existing.data:
             return existing.data[0]
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось загрузить историю чата. Повторите попытку.") from exc
 
     dialog_id = str(uuid.uuid4())
     now_iso = datetime.utcnow().isoformat()
@@ -65,10 +66,9 @@ def _get_or_create_dialog(sb, student_id: str) -> dict:
         result = sb.table("dialogs").insert(new_dialog).execute()
         if result.data:
             return result.data[0]
-    except Exception:
-        pass
-
-    return new_dialog
+        return new_dialog
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось создать историю чата. Повторите попытку.") from exc
 
 
 def _save_message(sb, dialog_id: str, sender_role: SenderRole, content: str) -> dict:
@@ -83,13 +83,9 @@ def _save_message(sb, dialog_id: str, sender_role: SenderRole, content: str) -> 
     }
     try:
         sb.table("chat_messages").insert(msg).execute()
-    except Exception:
-        pass
-
-    try:
         sb.table("dialogs").update({"updated_at": now}).eq("id", dialog_id).execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось сохранить сообщение. Повторите попытку.") from exc
     return msg
 
 
@@ -120,9 +116,12 @@ async def send_message(
 
     if is_crisis:
         current_status = DialogStatus.WAITING_PSYCHOLOGIST.value
-        sb.table("dialogs").update(
-            {"status": DialogStatus.WAITING_PSYCHOLOGIST.value, "updated_at": datetime.utcnow().isoformat()}
-        ).eq("id", dialog_id).execute()
+        try:
+            sb.table("dialogs").update(
+                {"status": DialogStatus.WAITING_PSYCHOLOGIST.value, "updated_at": datetime.utcnow().isoformat()}
+            ).eq("id", dialog_id).execute()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Не удалось сохранить запрос психологу. Повторите попытку.") from exc
 
         # Trigger emergency alert for school psychologist
         await notify_emergency(
@@ -170,9 +169,12 @@ async def reply_message(
     saved_msg = _save_message(sb, payload.dialog_id, SenderRole.PSYCHOLOGIST, payload.content)
 
     # Update dialog status to ACTIVE
-    sb.table("dialogs").update(
-        {"status": DialogStatus.ACTIVE.value, "updated_at": datetime.utcnow().isoformat()}
-    ).eq("id", payload.dialog_id).execute()
+    try:
+        sb.table("dialogs").update(
+            {"status": DialogStatus.ACTIVE.value, "updated_at": datetime.utcnow().isoformat()}
+        ).eq("id", payload.dialog_id).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось обновить статус чата. Повторите попытку.") from exc
 
     return ChatMessage(
         id=saved_msg["id"],
@@ -202,8 +204,8 @@ async def call_psychologist(
         sb.table("dialogs").update(
             {"status": DialogStatus.WAITING_PSYCHOLOGIST.value, "updated_at": datetime.utcnow().isoformat()}
         ).eq("id", dialog_id).execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось сохранить запрос психологу. Повторите попытку.") from exc
 
     # Trigger emergency notification
     await notify_emergency(
@@ -262,8 +264,8 @@ async def get_dialog_messages(
             .order("created_at", desc=False)
             .execute()
         )
-    except Exception:
-        messages_result = type("res", (), {"data": []})()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось загрузить сообщения. Повторите попытку.") from exc
 
     return [
         ChatMessage(
@@ -309,8 +311,8 @@ async def get_chat_history(
             )
             if d_res.data:
                 dialog = d_res.data[0]
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Не удалось загрузить историю чата. Повторите попытку.") from exc
     else:
         # Psychologists/admins may look up any dialog; students may supply a dialog id
         # only, which is checked against their token subject below.
@@ -318,8 +320,8 @@ async def get_chat_history(
             d_res = sb.table("dialogs").select("*").eq("id", identifier).limit(1).execute()
             if d_res.data:
                 dialog = d_res.data[0]
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Не удалось загрузить историю чата. Повторите попытку.") from exc
 
         if dialog and not is_psychologist and dialog.get("student_id") != subject:
             raise HTTPException(status_code=403, detail="Нет доступа к этой переписке")
@@ -336,8 +338,8 @@ async def get_chat_history(
                 )
                 if d_res.data:
                     dialog = d_res.data[0]
-            except Exception:
-                pass
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail="Не удалось загрузить историю чата. Повторите попытку.") from exc
 
     if not dialog:
         # Fallback dummy dialog if none found
@@ -360,8 +362,8 @@ async def get_chat_history(
             .order("created_at", desc=False)
             .execute()
         )
-    except Exception:
-        messages_result = type("res", (), {"data": []})()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось загрузить сообщения. Повторите попытку.") from exc
 
     messages = [
         ChatMessage(
@@ -435,5 +437,65 @@ async def get_waiting_dialogs(
             created_at=d["created_at"],
         )
         for d in dialog_list
+    ]
+
+
+@router.get("/archive", response_model=List[DialogOut])
+async def search_chat_archive(
+    from_date: Optional[date] = Query(default=None, alias="from"),
+    to_date: Optional[date] = Query(default=None, alias="to"),
+    student_id: Optional[str] = None,
+    status: Optional[DialogStatus] = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: dict = Depends(get_current_psychologist),
+):
+    """Search saved chat records by date, student identifier, and status."""
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=422, detail="Начальная дата не может быть позже конечной")
+
+    sb = get_database()
+    query = sb.table("dialogs").select("*").order("updated_at", desc=True).range(offset, offset + limit - 1)
+    oral_tz = ZoneInfo("Asia/Oral")
+    if from_date:
+        lower_bound = datetime.combine(from_date, time.min, tzinfo=oral_tz).astimezone(timezone.utc)
+        query = query.gte("updated_at", lower_bound.isoformat())
+    if to_date:
+        upper_bound = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=oral_tz).astimezone(timezone.utc)
+        query = query.lt(
+            "updated_at",
+            upper_bound.isoformat(),
+        )
+    if student_id:
+        query = query.eq("student_id", student_id.strip())
+    if status:
+        query = query.eq("status", status.value)
+
+    try:
+        dialogs = query.execute().data or []
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось загрузить архив чатов. Повторите попытку.") from exc
+
+    student_ids = list({dialog["student_id"] for dialog in dialogs if dialog.get("student_id") != ANONYMOUS_USER_ID})
+    user_names = {}
+    if student_ids:
+        try:
+            users = sb.table("users").select("id, full_name").in_("id", student_ids).execute()
+            user_names = {user["id"]: user.get("full_name") for user in (users.data or [])}
+        except Exception:
+            # The archived conversation remains available by its student identifier.
+            pass
+
+    return [
+        DialogOut(
+            id=dialog["id"],
+            student_id=dialog["student_id"],
+            status=DialogStatus(dialog["status"]),
+            created_at=dialog["created_at"],
+            updated_at=dialog.get("updated_at"),
+            student_name=("Анонимді оқушы" if dialog["student_id"] == ANONYMOUS_USER_ID else user_names.get(dialog["student_id"], dialog["student_id"])),
+            is_anonymous=dialog["student_id"] == ANONYMOUS_USER_ID,
+        )
+        for dialog in dialogs
     ]
 

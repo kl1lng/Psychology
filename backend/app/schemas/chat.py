@@ -35,6 +35,7 @@ class DialogOut(BaseModel):
     student_id: str
     status: DialogStatus
     created_at: datetime
+    updated_at: Optional[datetime] = None
     student_name: Optional[str] = None
     is_anonymous: Optional[bool] = False
     messages: Optional[List[ChatMessage]] = None
