@@ -1,0 +1,9 @@
+services:
+  backend:
+    environment:
+      APP_ENV: development
+      ENABLE_DEV_TOOLS: "true"
+
+  frontend:
+    ports:
+      - "127.0.0.1:3000:3000"

@@ -1,25 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { playSuccessChime } from '@/lib/sound-alerts';
 
 /**
- * useConfettiSound — plays congratulation.mp3 and optional canvas confetti.
+ * useConfettiSound — plays a short congratulation chime and canvas confetti.
  * Call trigger() after a successful assessment submission.
  */
 export function useConfettiSound() {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
   function trigger() {
-    // ── Play audio ────────────────────────────────────────────────────────
-    try {
-      const audio = new Audio('/sounds/congratulation.mp3');
-      audio.volume = 0.7;
-      audioRef.current = audio;
-      audio.play().catch(() => {
-        // Autoplay blocked — that's fine
-      });
-    } catch {}
+    playSuccessChime();
 
     // ── Canvas confetti ───────────────────────────────────────────────────
     const canvas = document.createElement('canvas');
@@ -31,7 +20,6 @@ export function useConfettiSound() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     document.body.appendChild(canvas);
-    canvasRef.current = canvas;
 
     const ctx = canvas.getContext('2d')!;
     const particles: Particle[] = [];

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
+from pathlib import Path
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logger = logging.getLogger("aisezim")
@@ -56,7 +57,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 from app.api.router import api_router
 
 # ─── Static files (audio, uploads) ───────────────────────────────────────────
-static_dir = os.path.join(os.path.dirname(__file__), "static")
+static_dir = str(Path(settings.local_storage_path).resolve())
 os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

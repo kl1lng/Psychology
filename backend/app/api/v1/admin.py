@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Cookie, Header
 from app.core.security import hash_password, decode_token, get_current_admin
-from app.core.supabase import get_supabase
+from app.core.database import get_database
 from app.schemas.user import UserCreateAdmin, UserOut, UserRole
 from app.core.departments_store import DepartmentStore
 
@@ -31,7 +31,7 @@ def check_dev_tools_enabled():
 @router.get("/stats")
 async def get_admin_stats(admin: dict = Depends(get_current_admin)):
     """Get high-level KPI metrics for Admin Dashboard (optimized query)."""
-    sb = get_supabase()
+    sb = get_database()
     try:
         users_res = sb.table("users").select("id, role").execute()
         users_data = users_res.data or []
@@ -69,7 +69,7 @@ async def get_users_list(
     2. Single batch join/lookup for departments (eliminates N+1).
     3. Server-side SQL pagination (Limit / Offset) and search filter.
     """
-    sb = get_supabase()
+    sb = get_database()
     try:
         page = max(1, page)
         limit = min(100, max(1, limit))
@@ -140,7 +140,7 @@ async def create_user_by_admin(
     admin: dict = Depends(get_current_admin),
 ):
     """Endpoint for admins to create teacher, psychologist or student users."""
-    sb = get_supabase()
+    sb = get_database()
 
     # Check if email exists
     existing = sb.table("users").select("id").eq("email", payload.email).execute()
@@ -190,10 +190,18 @@ async def delete_user_by_admin(
     admin: dict = Depends(get_current_admin),
 ):
     """Delete a user account from database."""
-    sb = get_supabase()
+    sb = get_database()
 
     # 1. Clean up associated user records if any
-    for table in ["assessment_results", "mood_entries", "psychologist_notes", "qa_questions"]:
+    for table in [
+        "assessment_results",
+        "mood_entries",
+        "psychologist_notes",
+        "qa_questions",
+        "appointments",
+        "dialogs",
+        "consultation_slots",
+    ]:
         try:
             sb.table(table).delete().eq("student_id", user_id).execute()
         except Exception:
@@ -222,7 +230,7 @@ async def clear_demo_data(admin: dict = Depends(get_current_admin)):
     Leaves real users and real data completely untouched.
     """
     check_dev_tools_enabled()
-    sb = get_supabase()
+    sb = get_database()
 
     deleted_counts = {
         "users": 0,
@@ -310,7 +318,7 @@ async def seed_demo_data(admin: dict = Depends(get_current_admin)):
     Uses valid UUIDs for all user and child foreign key relationships.
     """
     check_dev_tools_enabled()
-    sb = get_supabase()
+    sb = get_database()
     now = datetime.utcnow()
 
     try:

@@ -7,6 +7,7 @@ from app.api.v1 import (
     mood,
     chat,
     appointments,
+    intakes,
     analytics,
     podcasts,
     leaderboard,
@@ -25,6 +26,7 @@ api_router.include_router(assessments.router)
 api_router.include_router(mood.router)
 api_router.include_router(chat.router)
 api_router.include_router(appointments.router)
+api_router.include_router(intakes.router)
 api_router.include_router(analytics.router)
 api_router.include_router(podcasts.router)
 api_router.include_router(leaderboard.router)

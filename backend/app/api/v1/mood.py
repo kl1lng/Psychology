@@ -1,37 +1,23 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, time, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Cookie, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 
-from app.core.security import decode_token
-from app.core.supabase import get_supabase
+from app.core.security import get_current_user
+from app.core.database import get_database
 from app.schemas.mood import MoodEntry, MoodEntryOut, MoodStats
 from app.services.mood_analytics import compute_mood_stats
 
 logger = logging.getLogger("aisezim.mood")
 router = APIRouter(prefix="/mood", tags=["Mood"])
 
-# Fallback anonymous user UUID for unauthenticated/guest entries
-ANONYMOUS_USER_ID = "00000000-0000-0000-0000-000000000000"
-
-
-def _is_valid_uuid(val: Optional[str]) -> bool:
-    if not val:
-        return False
-    try:
-        uuid.UUID(str(val))
-        return True
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-
 # ─── Save mood entry ──────────────────────────────────────────────────────────
 @router.post("/entry", response_model=MoodEntryOut, status_code=status.HTTP_201_CREATED)
 async def create_mood_entry(
     payload: MoodEntry,
-    access_token: Optional[str] = Cookie(None),
+    current_user: dict = Depends(get_current_user),
 ):
     # Validate payload stress level
     if payload.stress_level is None or not (1 <= payload.stress_level <= 10):
@@ -40,59 +26,41 @@ async def create_mood_entry(
             detail="Уровень стресса должен быть числом от 1 до 10",
         )
 
-    # Determine student_id from payload or JWT cookie
-    student_id = payload.student_id
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        if token_data:
-            student_id = token_data.get("sub")
-
-    # If student_id is missing or not a valid UUID (e.g. 'guest_...' or 'anonymous'), use anonymous UUID
-    if not student_id or not _is_valid_uuid(student_id):
-        student_id = ANONYMOUS_USER_ID
+    role = current_user.get("role")
+    if role not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Отмечать стресс могут только ученик или гость")
+    student_id = current_user["sub"]
+    if payload.student_id and payload.student_id != student_id:
+        raise HTTPException(status_code=403, detail="Нельзя сохранить отметку для другого пользователя")
 
     entry_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
-    sb = get_supabase()
+    sb = get_database()
     try:
-        sb.table("mood_entries").insert({
+        mood_record = {
             "id": entry_id,
             "student_id": student_id,
             "stress_level": int(payload.stress_level),
             "note": payload.note.strip() if payload.note else None,
             "created_at": now.isoformat(),
-        }).execute()
+        }
+        if payload.emotion:
+            mood_record["emotion"] = payload.emotion
+        sb.table("mood_entries").insert(mood_record).execute()
     except Exception as e:
         err_msg = str(e)
-        logger.warning(f"Error saving mood entry for {student_id}: {err_msg}")
+        logger.warning("Mood entry write failed")
         
-        # Handle foreign key violation if user was deleted or not found
-        if "foreign key" in err_msg.lower() or "23503" in err_msg:
-            try:
-                sb.table("mood_entries").insert({
-                    "id": entry_id,
-                    "student_id": ANONYMOUS_USER_ID,
-                    "stress_level": int(payload.stress_level),
-                    "note": payload.note.strip() if payload.note else None,
-                    "created_at": now.isoformat(),
-                }).execute()
-                student_id = ANONYMOUS_USER_ID
-            except Exception as e2:
-                logger.error(f"Fallback insert failed: {str(e2)}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Не удалось связать запись настроения с профилем пользователя.",
-                )
-        elif "22p02" in err_msg.lower() or "invalid input syntax" in err_msg.lower():
+        if "22p02" in err_msg.lower() or "invalid input syntax" in err_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Некорректный формат данных для сохранения записи настроения.",
             )
         else:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Ошибка базы данных при сохранении: {err_msg}",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Не удалось сохранить отметку. Повторите попытку позже.",
             )
 
     return MoodEntryOut(
@@ -100,6 +68,7 @@ async def create_mood_entry(
         student_id=student_id,
         stress_level=payload.stress_level,
         note=payload.note,
+        emotion=payload.emotion,
         created_at=now,
     )
 
@@ -108,32 +77,46 @@ async def create_mood_entry(
 @router.get("/stats", response_model=MoodStats)
 async def get_mood_stats(
     student_id: Optional[str] = None,
-    days: int = 30,
-    access_token: Optional[str] = Cookie(None),
+    days: int = Query(30, ge=1, le=90),
+    current_user: dict = Depends(get_current_user),
 ):
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        if token_data:
-            student_id = token_data.get("sub")
+    role = current_user.get("role")
+    if role not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Статистика настроения доступна ученику или гостю")
+    subject = current_user["sub"]
+    if student_id and student_id != subject:
+        raise HTTPException(status_code=403, detail="Нельзя просматривать статистику другого пользователя")
 
-    # If student is unauthenticated or has invalid UUID, return safe empty stats
-    if not student_id or not _is_valid_uuid(student_id):
-        return compute_mood_stats([])
+    first_day = datetime.now(timezone.utc).date() - timedelta(days=days - 1)
+    cutoff = datetime.combine(first_day, time.min, tzinfo=timezone.utc).isoformat()
 
-    sb = get_supabase()
+    sb = get_database()
     try:
-        result = (
-            sb.table("mood_entries")
-            .select("stress_level, created_at")
-            .eq("student_id", student_id)
-            .order("created_at", desc=False)
-            .limit(max(days * 3, 100))
-            .execute()
-        )
-        entries = result.data or []
-    except Exception as e:
-        logger.warning(f"Error fetching mood stats for {student_id}: {str(e)}")
-        return compute_mood_stats([])
+        entries = []
+        try:
+            mood_columns = "stress_level, emotion, created_at"
+            sb.table("mood_entries").select("emotion").limit(1).execute()
+        except Exception:
+            mood_columns = "stress_level, created_at"
+        offset = 0
+        while True:
+            result = (
+                sb.table("mood_entries")
+                .select(mood_columns)
+                .eq("student_id", subject)
+                .gte("created_at", cutoff)
+                .order("created_at", desc=False)
+                .range(offset, offset + 999)
+                .execute()
+            )
+            rows = result.data or []
+            entries.extend(rows)
+            if len(rows) < 1000:
+                break
+            offset += len(rows)
+    except Exception:
+        logger.warning("Mood statistics read failed")
+        raise HTTPException(status_code=503, detail="Не удалось загрузить статистику. Повторите попытку позже.")
 
     return compute_mood_stats(entries)
 

@@ -17,24 +17,24 @@ export function StitchLoader({
 }: StitchLoaderProps) {
   let accentBadge = 'bg-[#e5eeff] dark:bg-indigo-950/60 text-[#3525cd] dark:text-indigo-300';
   let accentIcon = <LogoIcon className="w-5 h-5" />;
-  let portalName = 'AISezim Platform';
+  let portalName = 'Платформа AISezim';
 
   if (type === 'admin') {
     accentBadge = 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300';
     accentIcon = <ShieldCheck className="w-5 h-5" />;
-    portalName = 'AISezim Admin';
+    portalName = 'AISezim · Администратор';
   } else if (type === 'teacher') {
     accentBadge = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300';
     accentIcon = <GraduationCap className="w-5 h-5" />;
-    portalName = 'AISezim Teacher';
+    portalName = 'AISezim · Учитель';
   } else if (type === 'student') {
     accentBadge = 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300';
     accentIcon = <Sparkles className="w-5 h-5" />;
-    portalName = 'AISezim Student';
+    portalName = 'AISezim · Ученик';
   } else if (type === 'psychologist') {
     accentBadge = 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300';
     accentIcon = <LogoIcon className="w-5 h-5 text-purple-600 dark:text-purple-400" />;
-    portalName = 'AISezim Psychologist';
+    portalName = 'AISezim · Психолог';
   }
 
   return (

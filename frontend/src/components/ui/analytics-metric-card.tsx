@@ -25,6 +25,9 @@ import {
   Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatLocalizedChartDate } from '@/lib/chart-dates';
+
+export { formatLocalizedChartDate } from '@/lib/chart-dates';
 
 export interface MetricDataPoint {
   date: string;
@@ -52,71 +55,6 @@ export interface AnalyticsMetricCardProps {
   className?: string;
   onPeriodChange?: (period: PeriodOption) => void;
   onChartTypeChange?: (type: ChartType) => void;
-}
-
-const KK_MONTHS_SHORT = ['қаң', 'ақп', 'нау', 'сәу', 'мам', 'мау', 'шіл', 'там', 'қыр', 'қаз', 'қар', 'жел'];
-const KK_MONTHS_FULL = ['қаңтар', 'ақпан', 'наурыз', 'сәуір', 'мамыр', 'маусым', 'шілде', 'тамыз', 'қыркүйек', 'қазан', 'қараша', 'желтоқсан'];
-
-export function formatLocalizedChartDate(
-  value: string | number | Date | undefined,
-  localeOrLang: string = 'ru',
-  options: { format?: 'short' | 'full' } = { format: 'short' }
-): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (isNaN(date.getTime())) return String(value);
-
-  const isKk =
-    localeOrLang === 'qaz' ||
-    localeOrLang === 'kk' ||
-    localeOrLang === 'kz' ||
-    localeOrLang === 'kk-KZ';
-
-  if (isKk) {
-    const day = date.getDate();
-    const monthIdx = date.getMonth();
-    if (options.format === 'full') {
-      return `${day} ${KK_MONTHS_FULL[monthIdx]} ${date.getFullYear()} ж.`;
-    }
-    return `${day} ${KK_MONTHS_SHORT[monthIdx]}`;
-  }
-
-  const validLocale = 'ru-RU';
-  try {
-    return new Intl.DateTimeFormat(validLocale, {
-      month: 'short',
-      day: 'numeric',
-    }).format(date);
-  } catch {
-    return date.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' });
-  }
-}
-
-// Built-in rich fallback generator for demo / default states
-function generateDemoData(days: number, localeOrLang: string = 'ru'): MetricDataPoint[] {
-  const points: MetricDataPoint[] = [];
-  const now = new Date();
-  
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(now.getDate() - i);
-    
-    const dayStr = formatLocalizedChartDate(d, localeOrLang, { format: 'short' });
-    const isoDate = d.toISOString().split('T')[0];
-    
-    // Wave pattern with natural variation
-    const base = Math.floor(6 + Math.sin(i / 1.8) * 3 + Math.cos(i / 3) * 2 + (i % 4));
-    const value = Math.max(1, base + Math.floor(Math.random() * 3));
-    const secondaryValue = Math.max(0, Math.floor(value * 0.6 + (i % 2)));
-
-    points.push({
-      date: isoDate,
-      displayDate: dayStr,
-      value,
-      secondaryValue,
-    });
-  }
-  return points;
 }
 
 const COLOR_SCHEMES = {
@@ -241,7 +179,7 @@ export const AnalyticsMetricCard: React.FC<AnalyticsMetricCardProps> = ({
       return data.slice(-days);
     }
     // Fallback demo data
-    return generateDemoData(periodDaysMap[period], lang);
+    return [];
   }, [periodData, data, period, lang]);
 
   // Computed metrics (Peak, Low, Avg, Total, Today, Delta)
@@ -290,7 +228,7 @@ export const AnalyticsMetricCard: React.FC<AnalyticsMetricCardProps> = ({
   };
 
   const defaultTitle = lang === 'kk' ? 'Консультациялар мен өтініштер динамикасы' : 'Динамика консультаций и обращений';
-  const defaultSubtitle = lang === 'kk' ? 'Психологқа жазылулар мен AI көмекші белсенділігі' : 'Сессии со специалистом и сеансы самопомощи';
+  const defaultSubtitle = lang === 'kk' ? 'Психологқа жазылулар мен ЖИ көмекші белсенділігі' : 'Сессии со специалистом и сеансы самопомощи';
   const defaultUnit = lang === 'kk' ? 'өтініш' : 'обращений';
 
   const gradientId = `metric-gradient-${colorScheme}`;
@@ -333,7 +271,7 @@ export const AnalyticsMetricCard: React.FC<AnalyticsMetricCardProps> = ({
                 )}
               >
                 <Activity size={12} className="animate-pulse" />
-                {badgeLabel || (lang === 'kk' ? 'Аналитика' : 'Live Metrics')}
+                {badgeLabel || (lang === 'kk' ? 'Аналитика' : 'Текущие показатели')}
               </span>
 
               {/* Trend Pill */}

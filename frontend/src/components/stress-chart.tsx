@@ -24,6 +24,7 @@ interface StressChartProps {
   color?: string;
   gradientId?: string;
   className?: string;
+  locale?: string;
 }
 
 interface CustomTooltipPayload {
@@ -64,6 +65,7 @@ export default function StressChart({
   color = '#6366F1',
   gradientId = 'smoothAreaGradient',
   className = '',
+  locale = 'ru-RU',
 }: StressChartProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -79,16 +81,17 @@ export default function StressChart({
 
   const formatted = data.map((d) => ({
     ...d,
-    label: new Date(d.date).toLocaleDateString('ru-RU', {
+    label: new Date(`${d.date}T12:00:00Z`).toLocaleDateString(locale, {
       day: 'numeric',
       month: 'short',
+      timeZone: 'UTC',
     }),
   }));
 
-  const avg =
-    data.length > 0
-      ? data.reduce((s, d) => s + d.avg_stress, 0) / data.length
-      : 0;
+  const entryCount = data.reduce((sum, day) => sum + day.entries_count, 0);
+  const avg = entryCount > 0
+    ? data.reduce((sum, day) => sum + day.avg_stress * day.entries_count, 0) / entryCount
+    : 0;
 
   return (
     <div

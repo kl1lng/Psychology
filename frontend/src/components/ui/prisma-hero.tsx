@@ -155,14 +155,14 @@ export const PrismaHero = () => {
                 onClick={() => setLang('ru')}
                 className={`transition-colors ${lang === 'ru' ? 'text-white' : 'hover:text-[#E1E0CC]'}`}
               >
-                RU
+                РУС
               </button>
               <span>|</span>
               <button
                 onClick={() => setLang('kk')}
                 className={`transition-colors ${lang === 'kk' ? 'text-white' : 'hover:text-[#E1E0CC]'}`}
               >
-                QAZ
+                ҚАЗ
               </button>
             </div>
           </div>
@@ -182,7 +182,7 @@ export const PrismaHero = () => {
               className="text-[11px] font-bold text-[#E1E0CC] flex items-center gap-1 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full"
             >
               <Globe size={10} />
-              {lang === 'ru' ? 'RU' : 'QAZ'}
+              {lang === 'ru' ? 'РУС' : 'ҚАЗ'}
             </button>
           </div>
         </nav>

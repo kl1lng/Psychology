@@ -6,7 +6,7 @@ import {
   EYSENCK_QUESTIONS,
   calculateEysenckResults,
   getQuestionScale,
-  getMockStudentAnswers,
+  KEYS,
 } from '@/mocks/eysenck-demo';
 
 export interface StudentIndividualReportProps {
@@ -52,7 +52,7 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
   cleanTestName = cleanTestName.replace(/\s+/g, ' ').trim();
 
   // Prepare full 57 answers dataset for Eysenck test
-  const isEysenck = testId.toLowerCase().includes('eysenck') || !testId || questionResponses.length === 0;
+  const isEysenck = testId.toLowerCase().includes('eysenck');
 
   // Use provided responses or deterministic 57 responses
   let fullResponses: {
@@ -64,12 +64,11 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
   }[] = [];
 
   if (isEysenck) {
-    const studentMockAnswers = getMockStudentAnswers(studentId);
-    fullResponses = EYSENCK_QUESTIONS.map((q) => {
+    fullResponses = EYSENCK_QUESTIONS.flatMap((q) => {
       const matchResp = questionResponses.find((r) => Number(r.questionId) === q.id);
-      const mockAns = studentMockAnswers.find((a) => a.questionId === q.id);
-      const val = matchResp ? matchResp.selectedOption : (mockAns ? mockAns.value : 'Нет');
-      const isKey = mockAns ? mockAns.isKeyMatch : val === 'Да';
+      if (!matchResp) return [];
+      const val = matchResp.selectedOption;
+      const isKey = Object.values(KEYS).some((key) => (val === 'Да' ? key.yes : key.no).includes(q.id));
       const { scaleName } = getQuestionScale(q.id);
 
       return {
@@ -104,26 +103,26 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
   const upperRisk = rawRisk.toUpperCase();
 
   let riskText = 'НОРМА (НИЗКИЙ РИСК)';
-  let riskColor = '#166534';  // Dark green
-  let riskBg = '#E6F5EA';     // Light green
-  let riskBorder = '#BBF7D0';
+  let riskColor = '#172033';
+  let riskBg = '#ffffff';
+  let riskBorder = '#94a3b8';
 
   if (
     upperRisk.includes('КРИТИЧ') ||
     upperRisk.includes('CRITICAL') ||
     upperRisk.includes('ОЧЕНЬ ВЫСОК')
   ) {
-    riskColor = '#991B1B';   // Dark red
-    riskBg = '#FEE2E2';      // Light red
-    riskBorder = '#FECACA';
+    riskColor = '#172033';
+    riskBg = '#ffffff';
+    riskBorder = '#94a3b8';
     riskText = 'КРИТИЧЕСКИЙ УРОВЕНЬ РИСКА';
   } else if (
     upperRisk.includes('ВЫСОК') ||
     upperRisk.includes('HIGH')
   ) {
-    riskColor = '#991B1B';   // Dark red
-    riskBg = '#FEE2E2';      // Light red
-    riskBorder = '#FECACA';
+    riskColor = '#172033';
+    riskBg = '#ffffff';
+    riskBorder = '#94a3b8';
     riskText = 'ВЫСОКИЙ УРОВЕНЬ РИСКА';
   } else if (
     upperRisk.includes('СРЕДН') ||
@@ -131,23 +130,23 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
     upperRisk.includes('MEDIUM') ||
     upperRisk.includes('ВНИМАНИ')
   ) {
-    riskColor = '#92400E';   // Dark amber
-    riskBg = '#FEF3C7';      // Light yellow
-    riskBorder = '#FDE68A';
+    riskColor = '#172033';
+    riskBg = '#ffffff';
+    riskBorder = '#94a3b8';
     riskText = 'УМЕРЕННЫЙ РИСК';
   } else if (
     upperRisk.includes('НИЗК') ||
     upperRisk.includes('НОРМ') ||
     upperRisk.includes('LOW')
   ) {
-    riskColor = '#166534';   // Dark green
-    riskBg = '#E6F5EA';      // Light green
-    riskBorder = '#BBF7D0';
+    riskColor = '#172033';
+    riskBg = '#ffffff';
+    riskBorder = '#94a3b8';
     riskText = 'НОРМА (НИЗКИЙ РИСК)';
   } else {
-    riskColor = '#3F3F46';   // Neutral zinc
-    riskBg = '#F4F4F5';      // Light zinc
-    riskBorder = '#E4E4E7';
+    riskColor = '#172033';
+    riskBg = '#ffffff';
+    riskBorder = '#94a3b8';
     riskText = rawRisk;
   }
 
@@ -219,7 +218,7 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)',
           gap: '12px',
-          backgroundColor: '#f8fafc',
+          backgroundColor: '#ffffff',
           border: '1px solid #cbd5e1',
           borderRadius: '12px',
           padding: '14px 16px',
@@ -274,7 +273,7 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
               backgroundColor: riskBg,
               padding: '0 8px',
               borderRadius: '6px',
-              border: 'none',
+              border: `1px solid ${riskBorder}`,
               outline: 'none',
               whiteSpace: 'nowrap',
               width: 'fit-content',
@@ -290,8 +289,8 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
       {/* ── 3. Temperament & Psychological Conclusion Card (Aligned with equal-width badges) ───────── */}
       <div
         style={{
-          backgroundColor: '#faf5ff',
-          border: '1px solid #e9d5ff',
+          backgroundColor: '#ffffff',
+          border: '1px solid #cbd5e1',
           borderRadius: '12px',
           padding: '14px 16px',
           marginBottom: '20px',
@@ -301,25 +300,25 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '16px' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', color: '#7e22ce', letterSpacing: '0.5px' }}>
+            <div style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.5px' }}>
               ПСИХОЛОГИЧЕСКИЙ ТИП ПО СИСТЕМЕ АЙЗЕНКА
             </div>
-            <div style={{ fontSize: '15px', fontWeight: 900, color: '#581c87', marginTop: '2px' }}>
+            <div style={{ fontSize: '15px', fontWeight: 900, color: '#172033', marginTop: '2px' }}>
               {eysenckCalc.temperament}
             </div>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'stretch' }}>
-            <div style={{ flex: '1 1 0', minWidth: '96px', backgroundColor: '#ffffff', border: '1px solid #d8b4fe', padding: '6px 8px', borderRadius: '8px', textAlign: 'center', boxSizing: 'border-box' }}>
-              <div style={{ fontSize: '8px', color: '#6b21a8', fontWeight: 700, textTransform: 'uppercase' }}>Экстраверсия</div>
-              <div style={{ fontSize: '12px', fontWeight: 800, color: '#1d4ed8', marginTop: '2px' }}>{eysenckCalc.extraversion} / 24</div>
+            <div style={{ flex: '1 1 0', minWidth: '96px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', padding: '6px 8px', borderRadius: '8px', textAlign: 'center', boxSizing: 'border-box' }}>
+              <div style={{ fontSize: '8px', color: '#475569', fontWeight: 700, textTransform: 'uppercase' }}>Экстраверсия</div>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: '#172033', marginTop: '2px' }}>{eysenckCalc.extraversion} / 24</div>
             </div>
-            <div style={{ flex: '1 1 0', minWidth: '96px', backgroundColor: '#ffffff', border: '1px solid #d8b4fe', padding: '6px 8px', borderRadius: '8px', textAlign: 'center', boxSizing: 'border-box' }}>
-              <div style={{ fontSize: '8px', color: '#6b21a8', fontWeight: 700, textTransform: 'uppercase' }}>Нейротизм</div>
-              <div style={{ fontSize: '12px', fontWeight: 800, color: '#b45309', marginTop: '2px' }}>{eysenckCalc.neuroticism} / 24</div>
+            <div style={{ flex: '1 1 0', minWidth: '96px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', padding: '6px 8px', borderRadius: '8px', textAlign: 'center', boxSizing: 'border-box' }}>
+              <div style={{ fontSize: '8px', color: '#475569', fontWeight: 700, textTransform: 'uppercase' }}>Нейротизм</div>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: '#172033', marginTop: '2px' }}>{eysenckCalc.neuroticism} / 24</div>
             </div>
-            <div style={{ flex: '1 1 0', minWidth: '96px', backgroundColor: '#ffffff', border: '1px solid #d8b4fe', padding: '6px 8px', borderRadius: '8px', textAlign: 'center', boxSizing: 'border-box' }}>
-              <div style={{ fontSize: '8px', color: '#6b21a8', fontWeight: 700, textTransform: 'uppercase' }}>Шкала лжи</div>
-              <div style={{ fontSize: '12px', fontWeight: 800, color: eysenckCalc.lie > 4 ? '#b91c1c' : '#15803d', marginTop: '2px' }}>
+            <div style={{ flex: '1 1 0', minWidth: '96px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', padding: '6px 8px', borderRadius: '8px', textAlign: 'center', boxSizing: 'border-box' }}>
+              <div style={{ fontSize: '8px', color: '#475569', fontWeight: 700, textTransform: 'uppercase' }}>Шкала лжи</div>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: '#172033', marginTop: '2px' }}>
                 {eysenckCalc.lie} / 9
               </div>
             </div>
@@ -346,23 +345,18 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
             }}
           >
             <thead>
-              <tr style={{ backgroundColor: '#f1f5f9', color: '#334155', textAlign: 'left', fontWeight: 700 }}>
+              <tr style={{ backgroundColor: '#ffffff', color: '#172033', textAlign: 'left', fontWeight: 700 }}>
                 <th style={{ padding: '8px 12px', border: '1px solid #cbd5e1' }}>Название шкалы</th>
-                <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '90px', textAlign: 'center' }}>Сырой балл</th>
                 <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '70px', textAlign: 'center' }}>Процент</th>
                 <th style={{ padding: '8px 12px', border: '1px solid #cbd5e1' }}>Психологическая интерпретация</th>
               </tr>
             </thead>
             <tbody>
               {normalizedScales?.map((s, idx) => (
-                <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc', pageBreakInside: 'avoid' }}>
+                <tr key={idx} style={{ backgroundColor: '#ffffff', pageBreakInside: 'avoid' }}>
                   <td style={{ padding: '8px 12px', border: '1px solid #cbd5e1', fontWeight: 700 }}>
                     {typeof s.scale_name === 'object' ? JSON.stringify(s.scale_name) : s.scale_name}
                   </td>
-                  <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontWeight: 800, textAlign: 'center' }}>
-                    {s.raw_score} из {s.max_score}
-                  </td>
-
                   <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
                     {s.percentage}%
                   </td>
@@ -390,7 +384,7 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
           }}
         >
           <thead>
-            <tr style={{ backgroundColor: '#f1f5f9', color: '#334155', textAlign: 'left', fontWeight: 800 }}>
+            <tr style={{ backgroundColor: '#ffffff', color: '#172033', textAlign: 'left', fontWeight: 800 }}>
               <th style={{ padding: '8px 8px', border: '1px solid #cbd5e1', width: '32px', textAlign: 'center' }}>№</th>
               <th style={{ padding: '8px 12px', border: '1px solid #cbd5e1' }}>Текст диагностического вопроса</th>
               <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '100px' }}>Шкала</th>
@@ -403,7 +397,7 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
               <tr
                 key={r.questionId || idx}
                 style={{
-                  backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc',
+                  backgroundColor: '#ffffff',
                   pageBreakInside: 'avoid',
                 }}
               >
@@ -416,10 +410,10 @@ export const StudentIndividualReport: React.FC<StudentIndividualReportProps> = (
                 <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', color: '#64748b', fontSize: '9px', fontWeight: 600 }}>
                   {r.scaleName}
                 </td>
-                <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 800, color: r.value === 'Да' ? '#15803d' : '#475569' }}>
+                <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 800, color: '#172033' }}>
                   {r.value}
                 </td>
-                <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700, color: r.score > 0 ? '#15803d' : '#94a3b8' }}>
+                <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700, color: '#172033' }}>
                   +{r.score}
                 </td>
               </tr>

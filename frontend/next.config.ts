@@ -3,25 +3,25 @@ const ContentSecurityPolicy = `
   default-src 'self';
   script-src 'self' 'unsafe-eval' 'unsafe-inline' http: https: blob:;
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-  img-src 'self' blob: data: https: http:;
-  media-src 'self' blob: data: https: http:;
+  img-src 'self' blob: data:;
+  media-src 'self' blob: data:;
   font-src 'self' data: https://fonts.gstatic.com;
-  connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000 https: ws: wss:;
-  frame-src 'self' http: https:;
-  frame-ancestors 'self' *;
+  connect-src 'self' ws: wss:;
+  frame-src 'self';
+  frame-ancestors 'self';
 `
   .replace(/\s{2,}/g, ' ')
   .trim();
 
 const nextConfig = {
   reactStrictMode: false,
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.supabase.co',
-      },
-    ],
+  output: 'standalone',
+  async rewrites() {
+    const backend = process.env.INTERNAL_API_URL || 'http://localhost:8000';
+    return [
+      { source: '/api/:path*', destination: `${backend}/api/:path*` },
+      { source: '/static/:path*', destination: `${backend}/static/:path*` },
+    ];
   },
   async headers() {
     return [

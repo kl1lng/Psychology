@@ -2,10 +2,10 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Query, Cookie
+from fastapi import APIRouter, HTTPException, Query, Depends
 
-from app.core.security import decode_token
-from app.core.supabase import get_supabase
+from app.core.security import get_current_user, get_current_psychologist
+from app.core.database import get_database
 from app.schemas.qa import QuestionCreate, QuestionAnswer, QAQuestionOut, QAListResponse
 
 router = APIRouter(prefix="/qa", tags=["Q&A Anonymous Board"])
@@ -45,15 +45,12 @@ _IN_MEMORY_QA: List[Dict[str, Any]] = [
 @router.post("/ask", response_model=QAQuestionOut)
 async def ask_question(
     payload: QuestionCreate,
-    access_token: Optional[str] = Cookie(None),
+    current_user: dict = Depends(get_current_user),
 ):
-    student_id = payload.student_id
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        student_id = token_data.get("sub", f"anon_{uuid.uuid4().hex[:8]}")
-
-    if not student_id:
-        student_id = f"anon_{uuid.uuid4().hex[:8]}"
+    if current_user.get("role") not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Задавать вопросы могут только ученики")
+    # Identity comes from the verified session, never from a caller-controlled body field.
+    student_id = current_user["sub"]
 
     question_id = str(uuid.uuid4())
     now = datetime.utcnow()
@@ -72,7 +69,7 @@ async def ask_question(
         "answered_at": None,
     }
 
-    sb = get_supabase()
+    sb = get_database()
     try:
         sb.table("qa_questions").insert(item).execute()
     except Exception:
@@ -92,7 +89,7 @@ async def get_public_feed(
     lim = limit if isinstance(limit, int) else 30
     off = offset if isinstance(offset, int) else 0
 
-    sb = get_supabase()
+    sb = get_database()
     try:
         query = (
             sb.table("qa_questions")
@@ -125,11 +122,12 @@ async def get_moderation_queue(
     status: Optional[str] = Query(None, description="all | pending | answered"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    _auth: dict = Depends(get_current_psychologist),
 ):
     lim = limit if isinstance(limit, int) else 50
     off = offset if isinstance(offset, int) else 0
 
-    sb = get_supabase()
+    sb = get_database()
     try:
         query = sb.table("qa_questions").select("*").order("created_at", desc=True).range(off, off + lim - 1)
         if status == "pending":
@@ -159,18 +157,12 @@ async def get_moderation_queue(
 async def answer_question(
     question_id: str,
     payload: QuestionAnswer,
-    access_token: Optional[str] = Cookie(None),
+    psychologist: dict = Depends(get_current_psychologist),
 ):
-    psychologist_id = payload.psychologist_id
-    if not psychologist_id and access_token:
-        token_data = decode_token(access_token)
-        psychologist_id = token_data.get("sub", "psychologist_default")
-
-    if not psychologist_id:
-        psychologist_id = "psychologist_default"
+    psychologist_id = psychologist["sub"]
 
     now = datetime.utcnow()
-    sb = get_supabase()
+    sb = get_database()
 
     try:
         res = (
@@ -203,7 +195,7 @@ async def answer_question(
 # ─── 5. Like question ─────────────────────────────────────────────────────────
 @router.post("/like/{question_id}")
 async def like_question(question_id: str):
-    sb = get_supabase()
+    sb = get_database()
     try:
         res = sb.table("qa_questions").select("likes_count").eq("id", question_id).execute()
         if res.data:

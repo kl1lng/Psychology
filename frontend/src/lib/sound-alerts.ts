@@ -19,6 +19,37 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
+/** Call directly from a user gesture so browsers allow a later success sound. */
+export function prepareAudioPlayback() {
+  getAudioContext();
+}
+
+/** Plays a short, upbeat three-note sound after a successfully saved test. */
+export function playSuccessChime() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    [659.25, 783.99, 1046.5].forEach((frequency, index) => {
+      const start = now + index * 0.13;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.12, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.32);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.33);
+    });
+  } catch (err) {
+    console.warn('Could not play success chime:', err);
+  }
+}
+
 /**
  * Plays a pleasant 2-tone melodic notification chime (e.g. for incoming messages or new dialogs)
  */

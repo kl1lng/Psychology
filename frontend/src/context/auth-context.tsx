@@ -11,6 +11,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<User>;
+  demoLogin: () => User;
   guestLogin: () => Promise<string>;
   logout: () => void;
   refreshUser: () => Promise<User | null>;
@@ -25,19 +26,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const refreshUser = useCallback(async (): Promise<User | null> => {
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-      if (stored) {
+      const token = Cookies.get('access_token');
+      const localMode = process.env.NODE_ENV === 'development' ? localStorage.getItem('demo_mode') : null;
+      if (!token && localMode && localMode !== 'psychologist' && typeof window !== 'undefined') {
+        localStorage.removeItem('demo_mode');
+        localStorage.removeItem('user');
+        localStorage.removeItem('guest_id');
+      }
+      if (stored && (token || localMode)) {
         try {
           const parsed = JSON.parse(stored);
-          setUser(parsed);
+          const validLocalUser = localMode === 'psychologist' && parsed.id === 'local-demo-psychologist' && parsed.role === 'psychologist';
+          if (token || validLocalUser) setUser(parsed);
         } catch {}
       }
 
-      const token = Cookies.get('access_token');
       if (token) {
         const res = await authApi.me();
         const userData = res.data as User;
         setUser(userData);
         if (typeof window !== 'undefined') {
+          localStorage.removeItem('demo_mode');
           localStorage.setItem('user', JSON.stringify(userData));
         }
         return userData;
@@ -61,6 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const { access_token, user: userData } = res.data;
       Cookies.set('access_token', access_token, { expires: 1 });
       if (typeof window !== 'undefined') {
+        localStorage.removeItem('demo_mode');
         localStorage.setItem('user', JSON.stringify(userData));
       }
       setUser(userData);
@@ -70,6 +80,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const demoLogin = (): User => {
+    if (process.env.NODE_ENV !== 'development') {
+      throw new Error('Демо-вход доступен только в локальной разработке');
+    }
+    const demoUser: User = {
+      id: 'local-demo-psychologist',
+      email: 'demo-psychologist@localhost',
+      full_name: 'Демо-психолог',
+      role: 'psychologist',
+      points_balance: 0,
+    };
+    if (typeof window !== 'undefined') {
+      Cookies.remove('access_token');
+      localStorage.setItem('user', JSON.stringify(demoUser));
+      localStorage.setItem('demo_mode', 'psychologist');
+    }
+    setUser(demoUser);
+    return demoUser;
+  };
+
   const guestLogin = async (): Promise<string> => {
     setIsLoading(true);
     try {
@@ -77,6 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const { access_token, guest_id } = res.data;
       Cookies.set('access_token', access_token, { expires: 30 });
       if (typeof window !== 'undefined') {
+        localStorage.removeItem('demo_mode');
         localStorage.setItem('guest_id', guest_id);
       }
       const guestUser: User = {
@@ -101,6 +132,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('user');
       localStorage.removeItem('guest_id');
+      localStorage.removeItem('demo_mode');
       window.location.href = '/login';
     }
     setUser(null);
@@ -117,6 +149,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         isAuthenticated,
         isLoading,
         login,
+        demoLogin,
         guestLogin,
         logout,
         refreshUser,

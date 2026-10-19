@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/navigation-link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   GraduationCap,
@@ -92,7 +92,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
                       AISezim
                     </span>
                     <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50">
-                      Teacher Console
+                      Кабинет учителя
                     </span>
                   </div>
                   <span className="text-xs text-slate-500 dark:text-zinc-400 hidden sm:inline">

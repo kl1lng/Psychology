@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   Users,
@@ -32,18 +33,15 @@ import {
 } from 'lucide-react';
 import { LogoIcon } from '@/components/ui/logo-icon';
 import { analyticsApi, adminApi } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
 import { ClassComparisonItem, RiskLevel, ScaleResult, QuestionResponse } from '@/types/test';
-import { playEmergencyAlertSound, playNotificationChime } from '@/lib/sound-alerts';
+import { playEmergencyAlertSound } from '@/lib/sound-alerts';
 import { useLanguage } from '@/context/language-context';
 import { useAuth } from '@/context/auth-context';
-import AnalyticsMetricCard, { MetricDataPoint, formatLocalizedChartDate } from '@/components/ui/analytics-metric-card';
+import type { MetricDataPoint } from '@/components/ui/analytics-metric-card';
+import { formatLocalizedChartDate } from '@/lib/chart-dates';
 import { ClassSummaryReport, ClassSummaryStudentRow } from '@/components/pdf/ClassSummaryReport';
-import { StudentIndividualReport } from '@/components/pdf/StudentIndividualReport';
-import { exportComponentToPdf, generatePdfReport } from '@/lib/pdf-generator';
+import { DEMO_ASSESSMENTS, DEMO_METHODOLOGIES, getDemoAnswers } from '@/mocks/assessment-demo';
 import { UniversalReportData } from '@/types/pdf-report';
-import BarPatternChart from '@/components/ui/demo';
-import { EYSENCK_QUESTIONS, getMockStudentAnswers, calculateEysenckResults } from '@/mocks/eysenck-demo';
 
 
 
@@ -83,140 +81,7 @@ interface PsychStudentRow {
   question_responses: QuestionResponse[];
 }
 
-const PSYCH_METHODOLOGIES = [
-  {
-    id: 'eysenck',
-    title: 'Подростковый опросник Айзенка (EPI-A)',
-    description: 'Диагностика экстраверсии-интроверсии, нейротизма и искренности',
-    questionsCount: 60,
-  },
-  {
-    id: 'phillips',
-    title: 'Тест школьной тревожности Филлипса',
-    description: 'Оценка 8 факторов школьной тревожности и страха проверки знаний',
-    questionsCount: 58,
-  },
-  {
-    id: 'klimov',
-    title: 'Дифференциально-диагностический опросник Климова (ДДО)',
-    description: 'Определение профессиональных склонностей (Человек-Человек, Человек-Техника и др.)',
-    questionsCount: 30,
-  },
-  {
-    id: 'luskanova',
-    title: 'Методика оценки школьной мотивации Лускановой',
-    description: 'Диагностика уровня адаптации и отношения к учебному процессу',
-    questionsCount: 10,
-  },
-];
-
-const MOCK_PSYCH_STUDENTS: PsychStudentRow[] = [
-  {
-    id: 'ps-1',
-    student_id: 'std-101',
-    student_name: 'Айдос Нурланов',
-    class_id: '10А',
-    test_id: 'eysenck',
-    test_name: 'Подростковый опросник Айзенка (EPI-A)',
-    is_completed: true,
-    total_score: 14,
-    risk_level: 'LOW',
-    completed_at: '2026-08-18T10:30:00Z',
-    scales: [
-      { scale_name: 'Экстраверсия', raw_score: 16, max_score: 24, percentage: 67, interpretation: 'Умеренная экстраверсия, общителен' },
-      { scale_name: 'Нейротизм (Эмоц. стабильность)', raw_score: 8, max_score: 24, percentage: 33, interpretation: 'Высокая эмоциональная устойчивость' },
-      { scale_name: 'Шкала лжи', raw_score: 2, max_score: 9, percentage: 22, interpretation: 'Результаты достоверны' },
-    ],
-    question_responses: [
-      { id: 'qr-1', questionId: 1, selectedOption: 'Да', score: 1 },
-      { id: 'qr-2', questionId: 2, selectedOption: 'Нет', score: 0 },
-      { id: 'qr-3', questionId: 3, selectedOption: 'Да', score: 1 },
-    ],
-  },
-  {
-    id: 'ps-2',
-    student_id: 'std-102',
-    student_name: 'Айзере Серикова',
-    class_id: '10А',
-    test_id: 'eysenck',
-    test_name: 'Подростковый опросник Айзенка (EPI-A)',
-    is_completed: true,
-    total_score: 22,
-    risk_level: 'HIGH',
-    completed_at: '2026-08-18T10:45:00Z',
-    scales: [
-      { scale_name: 'Экстраверсия', raw_score: 8, max_score: 24, percentage: 33, interpretation: 'Интроверсия, склонность к уединению' },
-      { scale_name: 'Нейротизм (Эмоц. стабильность)', raw_score: 20, max_score: 24, percentage: 83, interpretation: 'Высокая тревожность, эмоциональная нестабильность' },
-      { scale_name: 'Шкала лжи', raw_score: 3, max_score: 9, percentage: 33, interpretation: 'Результаты достоверны' },
-    ],
-    question_responses: [
-      { id: 'qr-4', questionId: 1, selectedOption: 'Нет', score: 0 },
-      { id: 'qr-5', questionId: 2, selectedOption: 'Да', score: 1 },
-      { id: 'qr-6', questionId: 3, selectedOption: 'Да', score: 1 },
-    ],
-  },
-  {
-    id: 'ps-3',
-    student_id: 'std-103',
-    student_name: 'Батырхан Садыков',
-    class_id: '10А',
-    test_id: 'eysenck',
-    test_name: 'Подростковый опросник Айзенка (EPI-A)',
-    is_completed: true,
-    total_score: 17,
-    risk_level: 'MEDIUM',
-    completed_at: '2026-08-18T11:15:00Z',
-    scales: [
-      { scale_name: 'Экстраверсия', raw_score: 14, max_score: 24, percentage: 58, interpretation: 'Сбалансированный тип' },
-      { scale_name: 'Нейротизм (Эмоц. стабильность)', raw_score: 15, max_score: 24, percentage: 62, interpretation: 'Умеренно повышенная эмоциональная чувствительность' },
-      { scale_name: 'Шкала лжи', raw_score: 4, max_score: 9, percentage: 44, interpretation: 'Результаты достоверны' },
-    ],
-    question_responses: [
-      { id: 'qr-7', questionId: 1, selectedOption: 'Да', score: 1 },
-      { id: 'qr-8', questionId: 2, selectedOption: 'Да', score: 1 },
-    ],
-  },
-  {
-    id: 'ps-4',
-    student_id: 'std-108',
-    student_name: 'Санжар Жаксылык',
-    class_id: '9Б',
-    test_id: 'phillips',
-    test_name: 'Тест школьной тревожности Филлипса',
-    is_completed: true,
-    total_score: 38,
-    risk_level: 'CRITICAL',
-    completed_at: '2026-08-17T14:50:00Z',
-    scales: [
-      { scale_name: 'Общая школьная тревожность', raw_score: 18, max_score: 22, percentage: 82, interpretation: 'Высокий уровень общей дезадаптации' },
-      { scale_name: 'Страх ситуации проверки знаний', raw_score: 12, max_score: 14, percentage: 86, interpretation: 'Острый страх контрольных работ' },
-      { scale_name: 'Проблемы в отношениях с учителями', raw_score: 8, max_score: 10, percentage: 80, interpretation: 'Напряженность в коммуникации' },
-    ],
-    question_responses: [
-      { id: 'qr-9', questionId: 1, selectedOption: 'Да', score: 1 },
-      { id: 'qr-10', questionId: 2, selectedOption: 'Да', score: 1 },
-    ],
-  },
-  {
-    id: 'ps-5',
-    student_id: 'std-109',
-    student_name: 'Камилла Мусина',
-    class_id: '8А',
-    test_id: 'phillips',
-    test_name: 'Тест школьной тревожности Филлипса',
-    is_completed: true,
-    total_score: 12,
-    risk_level: 'LOW',
-    completed_at: '2026-08-19T11:00:00Z',
-    scales: [
-      { scale_name: 'Общая школьная тревожность', raw_score: 5, max_score: 22, percentage: 23, interpretation: 'Эмоциональный фон стабилен' },
-      { scale_name: 'Страх самовыражения', raw_score: 3, max_score: 12, percentage: 25, interpretation: 'Комфортно чувствует себя в коллективе' },
-    ],
-    question_responses: [
-      { id: 'qr-11', questionId: 1, selectedOption: 'Нет', score: 0 },
-    ],
-  },
-];
+const PSYCH_METHODOLOGIES = DEMO_METHODOLOGIES;
 
 const RISK_CONFIG = [
   { key: 'CRITICAL', labelRu: 'Критический', labelKk: 'Қауіпті (Критикалық)', color: '#ef4444', badgeColor: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30' },
@@ -225,12 +90,68 @@ const RISK_CONFIG = [
   { key: 'LOW',      labelRu: 'Низкий',      labelKk: 'Қалыпты (Төмен қауіп)', color: '#22c55e', badgeColor: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' },
 ];
 
+const AnalyticsMetricCard = dynamic(() => import('@/components/ui/analytics-metric-card'), {
+  ssr: false,
+  loading: () => <div aria-hidden="true" className="min-h-[360px] rounded-2xl border border-gray-100 bg-white animate-pulse dark:border-neutral-800 dark:bg-neutral-900" />,
+});
+
+const BarPatternChart = dynamic(() => import('@/components/ui/demo'), {
+  ssr: false,
+  loading: () => <div aria-hidden="true" className="min-h-[360px] rounded-2xl border border-gray-100 bg-white animate-pulse dark:border-neutral-800 dark:bg-neutral-900" />,
+});
+
+function DeferredChart({ children, minHeight = 360 }: { children: ReactNode; minHeight?: number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isNearViewport, setIsNearViewport] = useState(false);
+
+  useEffect(() => {
+    if (isNearViewport) return;
+
+    const element = containerRef.current;
+    if (!element) return;
+    if (!('IntersectionObserver' in window)) {
+      setIsNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsNearViewport(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '350px 0px' }
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isNearViewport]);
+
+  return (
+    <div ref={containerRef}>
+      {isNearViewport ? children : (
+        <div
+          aria-hidden="true"
+          style={{ minHeight }}
+          className="rounded-2xl border border-gray-100 bg-white/70 animate-pulse dark:border-neutral-800 dark:bg-neutral-900/70"
+        />
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { lang, t } = useLanguage();
   const { user } = useAuth();
+  const isDemo = process.env.NODE_ENV === 'development' && user?.id === 'local-demo-psychologist';
 
   // Tab switcher: overview vs psych_tests
   const [activeMainTab, setActiveMainTab] = useState<'overview' | 'psych_tests'>('overview');
+
+  useEffect(() => {
+    if (user?.id === 'local-demo-psychologist') setActiveMainTab('psych_tests');
+  }, [user?.id]);
 
   // Stats state
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -244,35 +165,50 @@ export default function DashboardPage() {
   } | null>(null);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
   const [liveAlert, setLiveAlert] = useState<string | null>(null);
+  const previousRiskCounts = useRef<{ high: number; critical: number } | null>(null);
 
   // Psych Testing tab state
   const [selectedPsychTestId, setSelectedPsychTestId] = useState<string>('eysenck');
   const [selectedPsychClass, setSelectedPsychClass] = useState<string>('ALL');
   const [selectedPsychRisk, setSelectedPsychRisk] = useState<string>('ALL');
+  useEffect(() => { setSelectedPsychRisk('ALL'); setInspectPsychStudent(null); }, [selectedPsychTestId]);
   const [psychSearchQuery, setPsychSearchQuery] = useState<string>('');
   const [inspectPsychStudent, setInspectPsychStudent] = useState<PsychStudentRow | null>(null);
   const [modalTab, setModalTab] = useState<'scales' | 'answers'>('answers');
-  const [modalScaleFilter, setModalScaleFilter] = useState<'ALL' | 'extraversion' | 'neuroticism' | 'lie'>('ALL');
+  const [modalScaleFilter, setModalScaleFilter] = useState<string>('ALL');
   const [modalSearch, setModalSearch] = useState<string>('');
   const [isExportingPsychPdf, setIsExportingPsychPdf] = useState<boolean>(false);
 
 
   // PDF Refs
   const psychClassReportRef = useRef<HTMLDivElement>(null);
-  const psychStudentReportRef = useRef<HTMLDivElement>(null);
+
 
   const fetchDashboardData = useCallback(async () => {
     try {
       const r = await analyticsApi.getDashboard();
+      const current = {
+        high: Number(r.data?.high_count || 0),
+        critical: Number(r.data?.critical_count || 0),
+      };
+      const previous = previousRiskCounts.current;
+      if (previous && (current.high > previous.high || current.critical > previous.critical)) {
+        playEmergencyAlertSound();
+        setLiveAlert(lang === 'kk'
+          ? 'Жоғары немесе сыни тәуекел деңгейі бар жаңа нәтиже тіркелді.'
+          : 'Поступил новый результат с высоким или критическим уровнем риска.');
+      }
+      previousRiskCounts.current = current;
       setStats(r.data);
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   const fetchClassComparison = useCallback(async () => {
     try {
@@ -288,70 +224,18 @@ export default function DashboardPage() {
   const fetchActivityHistory = useCallback(async () => {
     try {
       setLoadingActivity(true);
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const isoThreshold = thirtyDaysAgo.toISOString();
-
-      const [assessmentsRes, moodsRes, dialogsRes] = await Promise.all([
-        supabase
-          .from('assessment_results')
-          .select('created_at')
-          .gte('created_at', isoThreshold),
-        supabase
-          .from('mood_entries')
-          .select('created_at')
-          .gte('created_at', isoThreshold),
-        supabase
-          .from('dialogs')
-          .select('created_at')
-          .gte('created_at', isoThreshold),
-      ]);
-
-      const assessments = (assessmentsRes.data as Array<{ created_at: string }>) || [];
-      const moods = (moodsRes.data as Array<{ created_at: string }>) || [];
-      const dialogs = (dialogsRes.data as Array<{ created_at: string }>) || [];
-
-      const hasRealActivity = assessments.length > 0 || moods.length > 0 || dialogs.length > 0;
-
-      const points: MetricDataPoint[] = [];
-      const now = new Date();
-
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(now.getDate() - i);
-        const isoDate = d.toISOString().split('T')[0];
-        const displayDate = formatLocalizedChartDate(d, lang, { format: 'short' });
-
-        if (hasRealActivity) {
-          const testsCount = assessments.filter(
-            (a: { created_at: string }) => a.created_at && a.created_at.startsWith(isoDate)
-          ).length;
-          const moodCount = moods.filter(
-            (m: { created_at: string }) => m.created_at && m.created_at.startsWith(isoDate)
-          ).length;
-          const chatCount = dialogs.filter(
-            (c: { created_at: string }) => c.created_at && c.created_at.startsWith(isoDate)
-          ).length;
-
-          const totalValue = testsCount + chatCount + Math.ceil(moodCount * 0.7);
-
-          points.push({
-            date: isoDate,
-            displayDate,
-            value: totalValue,
-            secondaryValue: moodCount,
-          });
-        } else {
-          const base = Math.floor(5 + Math.sin(i / 2) * 2.5 + Math.cos(i / 3) * 1.5 + (i % 3));
-          const val = Math.max(1, base);
-          points.push({
-            date: isoDate,
-            displayDate,
-            value: val,
-            secondaryValue: Math.max(0, Math.floor(val * 0.6)),
-          });
+      const response = await analyticsApi.getActivity(30);
+      const points: MetricDataPoint[] = (response.data?.items || []).map(
+        (item: { date: string; tests: number; moods: number; dialogs: number }) => {
+          const day = new Date(`${item.date}T12:00:00`);
+          return {
+            date: item.date,
+            displayDate: formatLocalizedChartDate(day, lang, { format: 'short' }),
+            value: item.tests + item.dialogs + Math.ceil(item.moods * 0.7),
+            secondaryValue: item.moods,
+          };
         }
-      }
+      );
 
       setActivityData({
         '7d': points.slice(-7),
@@ -366,63 +250,21 @@ export default function DashboardPage() {
   }, [lang]);
 
   useEffect(() => {
+    if (!user || isDemo) { setLoading(false); setLoadingComparison(false); setLoadingActivity(false); return; }
     fetchDashboardData();
     fetchClassComparison();
     fetchActivityHistory();
-  }, [fetchDashboardData, fetchClassComparison, fetchActivityHistory]);
+  }, [fetchDashboardData, fetchClassComparison, fetchActivityHistory, isDemo, user]);
 
-  // Realtime subscription for alerts and dashboard updates
   useEffect(() => {
-    const dashboardChannel = supabase
-      .channel('psychologist-dashboard-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'assessment_results',
-        },
-        (payload) => {
-          const newResult = payload.new as any;
-          if (!newResult) return;
+    if (!user || isDemo) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') fetchDashboardData();
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [fetchDashboardData, isDemo, user]);
 
-          const risk = newResult.overall_risk;
-          if (risk === 'CRITICAL' || risk === 'HIGH') {
-            playEmergencyAlertSound();
-            setLiveAlert(
-              lang === 'kk'
-                ? `Шұғыл назар: «${newResult.test_name || 'Тестілеу'}» бойынша ${risk} қауіп анықталды!`
-                : `Внимание: Зафиксирован ${risk} уровень риска в тесте «${newResult.test_name || 'Тест'}»!`
-            );
-          } else {
-            playNotificationChime();
-          }
-
-          setStats((prev) => {
-            if (!prev) return null;
-            const updatedDist = {
-              ...prev.risk_distribution,
-              [risk]: (prev.risk_distribution[risk as keyof typeof prev.risk_distribution] || 0) + 1,
-            };
-            return {
-              ...prev,
-              risk_distribution: updatedDist,
-              critical_count: risk === 'CRITICAL' ? prev.critical_count + 1 : prev.critical_count,
-              high_count: risk === 'HIGH' ? prev.high_count + 1 : prev.high_count,
-            };
-          });
-
-          fetchClassComparison();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(dashboardChannel);
-    };
-  }, [fetchClassComparison, lang]);
-
-  const devToolsEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_TOOLS === 'true';
+  const devToolsEnabled = !isDemo && process.env.NEXT_PUBLIC_ENABLE_DEV_TOOLS === 'true';
 
   const loadAllDashboardData = useCallback(async () => {
     try {
@@ -498,8 +340,8 @@ export default function DashboardPage() {
 
   // Filtered psychological students
   const filteredPsychStudents = useMemo(() => {
-    return MOCK_PSYCH_STUDENTS.filter((student) => {
-      const matchTest = student.test_id === selectedPsychTestId || selectedPsychClass === 'ALL';
+    return (isDemo ? DEMO_ASSESSMENTS : []).filter((student) => {
+      const matchTest = student.test_id === selectedPsychTestId;
       const matchClass = selectedPsychClass === 'ALL' || student.class_id === selectedPsychClass;
       const matchRisk = selectedPsychRisk === 'ALL' || student.risk_level === selectedPsychRisk;
       const matchSearch =
@@ -508,7 +350,7 @@ export default function DashboardPage() {
         student.class_id.toLowerCase().includes(psychSearchQuery.toLowerCase());
       return matchTest && matchClass && matchRisk && matchSearch;
     });
-  }, [selectedPsychTestId, selectedPsychClass, selectedPsychRisk, psychSearchQuery]);
+  }, [selectedPsychTestId, selectedPsychClass, selectedPsychRisk, psychSearchQuery, isDemo]);
 
   const classSummaryRows: ClassSummaryStudentRow[] = useMemo(() => {
     return filteredPsychStudents.map((s) => ({
@@ -525,13 +367,15 @@ export default function DashboardPage() {
   const handleExportClassPsychPdf = async () => {
     if (!psychClassReportRef.current) return;
     try {
+      setPdfError(null);
       setIsExportingPsychPdf(true);
+      const { exportComponentToPdf } = await import('@/lib/pdf-generator');
       await exportComponentToPdf(
         psychClassReportRef.current,
-        `Psych_Protocol_${currentPsychTest.id}_${selectedPsychClass}.pdf`
+        `Сводный_протокол_${currentPsychTest.title.replace(/\s+/g, '_')}_${selectedPsychClass === 'ALL' ? 'Все_классы' : selectedPsychClass}.pdf`
       );
     } catch (err) {
-      console.error('Psych PDF export failed:', err);
+      setPdfError('Не удалось сформировать сводный отчёт. Повторите попытку.');
     } finally {
       setIsExportingPsychPdf(false);
     }
@@ -540,24 +384,26 @@ export default function DashboardPage() {
   // PDF Export for Individual Student (Universal)
   const handleExportStudentPsychPdf = async (student: PsychStudentRow) => {
     try {
+      setPdfError(null);
       setIsExportingPsychPdf(true);
-      const studentAnswers = getMockStudentAnswers(student.student_id);
-      const eysenckCalc = calculateEysenckResults(studentAnswers);
+      const isEysenck =
+        student.test_id.toLowerCase().includes('eysenck') ||
+        student.test_name.toLowerCase().includes('айзенк') ||
+        student.test_name.toLowerCase().includes('epi-a');
 
       const reportData: UniversalReportData = {
+        isDemo: true,
         student: {
           fullName: student.student_name,
           className: `Класс ${student.class_id}`,
         },
         test: {
-          name: student.test_name.includes('EPI') ? student.test_name : `${student.test_name} (EPI-A)`,
+          name: student.test_name,
           date: student.completed_at
             ? new Date(student.completed_at).toLocaleDateString('ru-RU')
             : new Date().toLocaleDateString('ru-RU'),
-          totalScore: student.test_id === 'eysenck' || student.test_name.toLowerCase().includes('айзенк') ? '-' : (student.total_score ? `${student.total_score} баллов` : '-'),
-
-
-          riskLevel:
+          totalScore: isEysenck || student.test_id === 'klimov' ? '-' : `${student.total_score} баллов`,
+          riskLevel: student.test_id === 'klimov' ? 'Не оценивается этой методикой' :
             student.risk_level === 'CRITICAL'
               ? 'Критический риск'
               : student.risk_level === 'HIGH'
@@ -566,50 +412,23 @@ export default function DashboardPage() {
               ? 'Умеренный риск'
               : 'Норма (Низкий риск)',
         },
-        scales: [
-          {
-            name: 'Экстраверсия',
-            rawScore: eysenckCalc.extraversion,
-            maxScore: 24,
-            percentage: Math.round((eysenckCalc.extraversion / 24) * 100),
-            interpretation:
-              eysenckCalc.extraversion > 12
-                ? 'Выраженная экстраверсия, общительность'
-                : 'Интроверсия, склонность к спокойствию',
-          },
-          {
-            name: 'Нейротизм (Эмоц. стабильность)',
-            rawScore: eysenckCalc.neuroticism,
-            maxScore: 24,
-            percentage: Math.round((eysenckCalc.neuroticism / 24) * 100),
-            interpretation:
-              eysenckCalc.neuroticism > 12
-                ? 'Эмоциональная нестабильность, тревожность'
-                : 'Высокая эмоциональная устойчивость',
-          },
-          {
-            name: 'Шкала лжи',
-            rawScore: eysenckCalc.lie,
-            maxScore: 9,
-            percentage: Math.round((eysenckCalc.lie / 9) * 100),
-            interpretation:
-              eysenckCalc.lie <= 4 ? 'Результаты достоверны' : 'Результаты сомнительны',
-          },
-        ],
-        answers: studentAnswers.map((ans, idx) => {
-          const q = EYSENCK_QUESTIONS.find((item) => item.id === ans.questionId);
-          return {
-            number: idx + 1,
-            questionText: q?.text || ans.questionText || `Вопрос #${ans.questionId}`,
-            studentAnswer: ans.value,
-            points: ans.isKeyMatch ? 1 : 0,
-          };
-        }),
+        scales: student.scales.map((scale) => ({
+          name: String(scale.scale_name),
+          rawScore: scale.raw_score,
+          maxScore: scale.max_score,
+          percentage: scale.percentage,
+          interpretation: scale.interpretation,
+        })),
+        answers: getDemoAnswers(student).map((answer) => ({
+          number: answer.questionId, questionText: answer.questionText, scaleName: answer.scaleName,
+          studentAnswer: answer.value,
+        })),
       };
 
+      const { generatePdfReport } = await import('@/lib/pdf-generator');
       await generatePdfReport(reportData);
     } catch (err) {
-      console.error('Student psych PDF export failed:', err);
+      setPdfError(err instanceof Error && /[А-Яа-я]/.test(err.message) ? err.message : 'Не удалось сформировать отчёт. Повторите попытку.');
     } finally {
       setIsExportingPsychPdf(false);
     }
@@ -640,6 +459,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 w-full max-w-full overflow-x-hidden">
+      {pdfError && <p role="alert" className="rounded-xl border border-red-300 p-3 text-red-700">{pdfError}</p>}
+      {isDemo && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          Демо-режим: ответы и ученики вымышлены и хранятся только в коде проекта. Выберите методику, откройте строку ученика и нажмите значок скачивания, чтобы проверить индивидуальный PDF.
+        </div>
+      )}
       {/* ─── 1. EXECUTIVE HEADER & TABS ─────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-4 sm:p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xs w-full">
         <div className="min-w-0 flex-1">
@@ -811,18 +636,20 @@ export default function DashboardPage() {
           </div>
 
           {/* Activity Metric Card */}
-          <AnalyticsMetricCard
-            title={t.dashboard?.activityDynamicsTitle || (lang === 'kk' ? 'Өтініштер динамикасы және психологиялық белсенділік' : 'Динамика обращений и психологической активности')}
-            subtitle={t.dashboard?.activityDynamicsSubtitle || (lang === 'kk' ? 'Оқушылардың өтініш белсенділігі, чат-сессиялар және аяқталған диагностикалар' : 'Активность обращений учащихся, чат-сессии и завершенные диагностики')}
-            badgeLabel={t.dashboard?.activityBadge || (lang === 'kk' ? 'Өтініштер ағыны' : 'Поток обращений')}
-            unit={lang === 'kk' ? 'өтініш' : 'обращений'}
-            periodData={activityData || undefined}
-            initialPeriod="14d"
-            initialChartType="area"
-            colorScheme="indigo"
-            lang={lang}
-            isLoading={loadingActivity}
-          />
+          <DeferredChart minHeight={360}>
+            <AnalyticsMetricCard
+              title={t.dashboard?.activityDynamicsTitle || (lang === 'kk' ? 'Өтініштер динамикасы және психологиялық белсенділік' : 'Динамика обращений и психологической активности')}
+              subtitle={t.dashboard?.activityDynamicsSubtitle || (lang === 'kk' ? 'Оқушылардың өтініш белсенділігі, чат-сессиялар және аяқталған диагностикалар' : 'Активность обращений учащихся, чат-сессии и завершенные диагностики')}
+              badgeLabel={t.dashboard?.activityBadge || (lang === 'kk' ? 'Өтініштер ағыны' : 'Поток обращений')}
+              unit={lang === 'kk' ? 'өтініш' : 'обращений'}
+              periodData={activityData || undefined}
+              initialPeriod="14d"
+              initialChartType="area"
+              colorScheme="indigo"
+              lang={lang}
+              isLoading={loadingActivity}
+            />
+          </DeferredChart>
 
           {/* Early Warning & Class Comparison Bento */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -903,14 +730,17 @@ export default function DashboardPage() {
 
             {/* Right: Bar Pattern Chart */}
             <div className="lg:col-span-8 w-full">
-              <BarPatternChart data={formattedClassComparisonData} lang={lang} />
+              <DeferredChart minHeight={360}>
+                <BarPatternChart data={formattedClassComparisonData} lang={lang} />
+              </DeferredChart>
             </div>
           </div>
         </div>
       )}
 
       {/* ─── TAB 2: STANDARDIZED PSYCHOLOGICAL METHODOLOGIES ────────────────── */}
-      {activeMainTab === 'psych_tests' && (
+      {activeMainTab === 'psych_tests' && !isDemo && <p className="rounded-xl border p-4">Реальные результаты доступны в <Link href="/archive" className="underline">картотеке учеников</Link>. Демонстрационные записи здесь не отображаются.</p>}
+      {activeMainTab === 'psych_tests' && isDemo && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xs overflow-hidden">
             {/* Header and Selectors */}
@@ -1021,7 +851,7 @@ export default function DashboardPage() {
                   ) : (
                     filteredPsychStudents.map((student) => {
                       let riskBadge = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300';
-                      let riskText = 'Норма';
+                      let riskText = student.test_id === 'klimov' ? 'Не оценивается' : 'Норма';
 
                       if (student.risk_level === 'MEDIUM') {
                         riskBadge = 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300';
@@ -1116,7 +946,7 @@ export default function DashboardPage() {
                               </span>
                               <div className="inline-flex items-center gap-2">
                                 <button
-                                  onClick={() => setInspectPsychStudent(student)}
+                                  onClick={() => { setModalSearch(''); setModalScaleFilter('ALL'); setModalTab('answers'); setInspectPsychStudent(student); }}
                                   title="Детальный разбор ответов"
                                   className="p-2 sm:p-1.5 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                                 >
@@ -1146,8 +976,7 @@ export default function DashboardPage() {
 
       {/* ─── MODAL: DETAILED PSYCHOLOGICAL BREAKDOWN ─────────────────────────── */}
       {inspectPsychStudent && (() => {
-        const studentAnswers = getMockStudentAnswers(inspectPsychStudent.student_id);
-        const eysenckCalc = calculateEysenckResults(studentAnswers);
+        const studentAnswers = getDemoAnswers(inspectPsychStudent);
 
         const filteredAnswers = studentAnswers.filter((item) => {
           if (modalScaleFilter !== 'ALL' && item.scale !== modalScaleFilter) return false;
@@ -1177,7 +1006,7 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <p className="text-xs text-zinc-500 mt-0.5">
-                    {inspectPsychStudent.test_name} (EPI-A) • Пройдено: {inspectPsychStudent.completed_at ? new Date(inspectPsychStudent.completed_at).toLocaleDateString('ru-RU') : 'Сегодня'}
+                    {inspectPsychStudent.test_name} • Пройдено: {inspectPsychStudent.completed_at ? new Date(inspectPsychStudent.completed_at).toLocaleDateString('ru-RU') : 'Сегодня'}
                   </p>
                 </div>
                 <button
@@ -1192,40 +1021,7 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              {/* Temperament Summary Banner */}
-              <div className="p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700/70 shrink-0">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                      Тип темперамента (Координатная сетка Айзенка)
-                    </div>
-                    <div className="text-sm font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5 flex items-center gap-2">
-                      <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border ${eysenckCalc.temperamentColor}`}>
-                        {eysenckCalc.temperament}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <div className="px-2.5 py-1 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 text-center">
-                      <div className="text-[10px] text-zinc-400 font-medium">Экстраверсия</div>
-                      <div className="font-extrabold text-blue-600 dark:text-blue-400 text-xs">{eysenckCalc.extraversion} / 24</div>
-                    </div>
-                    <div className="px-2.5 py-1 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 text-center">
-                      <div className="text-[10px] text-zinc-400 font-medium">Нейротизм</div>
-                      <div className="font-extrabold text-amber-600 dark:text-amber-400 text-xs">{eysenckCalc.neuroticism} / 24</div>
-                    </div>
-                    <div className="px-2.5 py-1 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 text-center">
-                      <div className="text-[10px] text-zinc-400 font-medium">Шкала лжи</div>
-                      <div className={`font-extrabold text-xs ${eysenckCalc.lie > 4 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                        {eysenckCalc.lie} / 9
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed">
-                  {eysenckCalc.description}
-                </p>
-              </div>
+              <p className="text-xs text-zinc-500">Демонстрационные результаты выбранной методики. Данные вымышлены.</p>
 
               {/* Navigation Tabs */}
               <div className="flex items-center gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-2 shrink-0">
@@ -1238,9 +1034,9 @@ export default function DashboardPage() {
                   }`}
                 >
                   <ClipboardList className="w-3.5 h-3.5" />
-                  <span>Ответы на 57 вопросов</span>
+                  <span>Ответы на {studentAnswers.length} вопросов</span>
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${modalTab === 'answers' ? 'bg-white/20 text-white' : 'bg-zinc-200 dark:bg-zinc-700'}`}>
-                    57
+                    {studentAnswers.length}
                   </span>
                 </button>
                 <button
@@ -1291,37 +1087,7 @@ export default function DashboardPage() {
                               : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                           }`}
                         >
-                          Все (57)
-                        </button>
-                        <button
-                          onClick={() => setModalScaleFilter('extraversion')}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                            modalScaleFilter === 'extraversion'
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100'
-                          }`}
-                        >
-                          Экстраверсия (24)
-                        </button>
-                        <button
-                          onClick={() => setModalScaleFilter('neuroticism')}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                            modalScaleFilter === 'neuroticism'
-                              ? 'bg-amber-600 text-white'
-                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100'
-                          }`}
-                        >
-                          Нейротизм (24)
-                        </button>
-                        <button
-                          onClick={() => setModalScaleFilter('lie')}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                            modalScaleFilter === 'lie'
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 hover:bg-emerald-100'
-                          }`}
-                        >
-                          Шкала лжи (9)
+                          Все ({studentAnswers.length})
                         </button>
                       </div>
 
@@ -1428,29 +1194,11 @@ export default function DashboardPage() {
             classNameString={selectedPsychClass === 'ALL' ? 'Все параллели школы' : `Класс ${selectedPsychClass}`}
             testTitle={currentPsychTest.title}
             students={classSummaryRows}
+            isDemo={isDemo}
             teacherDepartmentName="Служба психологической поддержки AISezim"
           />
         </div>
-        {inspectPsychStudent && (
-          <div ref={psychStudentReportRef}>
-            <StudentIndividualReport
-              studentName={inspectPsychStudent.student_name}
-              studentId={inspectPsychStudent.student_id}
-              classId={inspectPsychStudent.class_id}
-              testId={inspectPsychStudent.test_id}
-              testName={inspectPsychStudent.test_name}
-              completedAt={inspectPsychStudent.completed_at}
-              totalScore={inspectPsychStudent.total_score}
-              riskLevel={inspectPsychStudent.risk_level}
-              scales={inspectPsychStudent.scales}
-              questionResponses={inspectPsychStudent.question_responses || []}
-              getQuestionText={(_tid, qId) => {
-                const q = EYSENCK_QUESTIONS.find((item) => item.id === Number(qId));
-                return q ? q.text : `Вопрос #${qId} стандартизированной методики`;
-              }}
-            />
-          </div>
-        )}
+
 
       </div>
     </div>

@@ -5,7 +5,6 @@ import { MessageSquare, Clock, User, ChevronRight, Send, BellRing, CheckCircle2,
 
 import { LogoIcon } from '@/components/ui/logo-icon';
 import { chatApi } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
 import { Dialog, ChatMessage } from '@/types/chat';
 import { formatDate, formatTime } from '@/lib/utils';
 import { playNotificationChime, playEmergencyAlertSound } from '@/lib/sound-alerts';
@@ -20,14 +19,30 @@ export default function ChatsPage() {
   const [sending, setSending] = useState(false);
   const [hasNewAlert, setHasNewAlert] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const queueLoaded = useRef(false);
+  const queueRequestInFlight = useRef(false);
+  const queuedDialogIds = useRef(new Set<string>());
+  const seenMessageIds = useRef(new Map<string, Set<string>>());
 
   const fetchWaitingDialogs = useCallback(async () => {
+    if (queueRequestInFlight.current) return;
+    queueRequestInFlight.current = true;
     try {
       const r = await chatApi.getWaiting();
-      setDialogs(r.data || []);
+      const nextDialogs = (r.data || []) as Dialog[];
+      if (queueLoaded.current) {
+        if (nextDialogs.some((dialog) => !queuedDialogIds.current.has(dialog.id))) {
+          playEmergencyAlertSound();
+          setHasNewAlert(true);
+        }
+      }
+      queueLoaded.current = true;
+      queuedDialogIds.current = new Set(nextDialogs.map((dialog) => dialog.id));
+      setDialogs(nextDialogs);
     } catch (err) {
       console.error('Failed to fetch waiting dialogs:', err);
     } finally {
+      queueRequestInFlight.current = false;
       setLoading(false);
     }
   }, []);
@@ -37,107 +52,67 @@ export default function ChatsPage() {
     fetchWaitingDialogs();
   }, [fetchWaitingDialogs]);
 
-  // ─── 2. Realtime subscription for Dialogs (Queue of Waiting Students) ────────
+  // Refresh the protected psychologist queue through the authenticated API.
   useEffect(() => {
-    const dialogsChannel = supabase
-      .channel('psychologist-dialogs-queue')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'dialogs',
-        },
-        (payload) => {
-          const updatedDialog = payload.new as Dialog;
-          if (!updatedDialog) return;
-
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            if (updatedDialog.status === 'WAITING_PSYCHOLOGIST') {
-              playEmergencyAlertSound();
-              setHasNewAlert(true);
-              setDialogs((prev) => {
-                const exists = prev.some((d) => d.id === updatedDialog.id);
-                if (exists) {
-                  return prev.map((d) => (d.id === updatedDialog.id ? { ...d, ...updatedDialog } : d));
-                }
-                return [updatedDialog, ...prev];
-              });
-            } else {
-              // Dialog was answered, closed, or moved to another status
-              setDialogs((prev) => prev.filter((d) => d.id !== updatedDialog.id));
-              setSelected((curr) => {
-                if (curr && curr.id === updatedDialog.id) {
-                  return { ...curr, status: updatedDialog.status };
-                }
-                return curr;
-              });
-            }
-          } else if (payload.eventType === 'DELETE') {
-            const oldDialog = payload.old as Dialog;
-            if (oldDialog?.id) {
-              setDialogs((prev) => prev.filter((d) => d.id !== oldDialog.id));
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(dialogsChannel);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') fetchWaitingDialogs();
     };
-  }, []);
+    const interval = window.setInterval(refreshWhenVisible, 8000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [fetchWaitingDialogs]);
 
-  // ─── 3. Realtime subscription for Messages in the Selected Dialog ────────────
+  // Refresh selected conversation through the role-checked history endpoint.
   useEffect(() => {
     if (!selected?.id) return;
-
-    const messagesChannel = supabase
-      .channel(`psychologist-dialog-messages:${selected.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `dialog_id=eq.${selected.id}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as ChatMessage;
-          if (!newMsg) return;
-
-          if (newMsg.sender_role === 'STUDENT') {
-            playNotificationChime();
-          }
-
-          setSelected((prev) => {
-            if (!prev || prev.id !== newMsg.dialog_id) return prev;
-            const currentMsgs = prev.messages || [];
-
-            // Avoid duplicate
-            if (currentMsgs.some((m) => m.id === newMsg.id)) return prev;
-
-            // Replace optimistic message if exists
-            const tempIndex = currentMsgs.findIndex(
-              (m) => m.id.startsWith('temp_') && m.content === newMsg.content && m.sender_role === newMsg.sender_role
-            );
-            if (tempIndex !== -1) {
-              const updatedMsgs = [...currentMsgs];
-              updatedMsgs[tempIndex] = newMsg;
-              return { ...prev, messages: updatedMsgs };
-            }
-
-            return {
-              ...prev,
-              messages: [...currentMsgs, newMsg],
-            };
-          });
-        }
-      )
-      .subscribe();
-
+    let active = true;
+    let polling = false;
+    const refreshSelectedDialog = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await chatApi.getHistory(selected.id);
+        if (!active || !response.data) return;
+        const latest = response.data as Dialog;
+        const messages = latest.messages || [];
+        const knownIds = seenMessageIds.current.get(selected.id) || new Set<string>();
+        const hasNewStudentMessage = messages.some(
+          (message) => message.sender_role === 'STUDENT' && !knownIds.has(message.id)
+        );
+        seenMessageIds.current.set(selected.id, new Set(messages.map((message) => message.id)));
+        if (hasNewStudentMessage) playNotificationChime();
+        setSelected((current) => {
+          if (current?.id !== selected.id) return current;
+          const pendingMessages = (current.messages || []).filter((message) =>
+            message.id.startsWith('temp_') &&
+            !messages.some((saved) => saved.sender_role === message.sender_role && saved.content === message.content)
+          );
+          return {
+            ...current,
+            status: latest.status,
+            messages: [...messages, ...pendingMessages].sort(
+              (left, right) => left.created_at.localeCompare(right.created_at)
+            ),
+          };
+        });
+      } catch {
+        // Keep the currently displayed messages during temporary API outages.
+      } finally {
+        polling = false;
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshSelectedDialog();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 4000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
-      supabase.removeChannel(messagesChannel);
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [selected?.id]);
 
@@ -149,12 +124,11 @@ export default function ChatsPage() {
     setSelected(dialog);
     setHasNewAlert(false);
     try {
-      // 1. First fetch strictly by dialog_id without users join
-      const res = await chatApi.getMessages(dialog.id).catch(() => chatApi.getHistory(dialog.student_id));
-      const msgs: ChatMessage[] = Array.isArray(res.data)
-        ? res.data
-        : (res.data?.messages || []);
-      setSelected({ ...dialog, messages: msgs });
+      const res = await chatApi.getHistory(dialog.id);
+      const history = res.data as Dialog;
+      const msgs: ChatMessage[] = history.messages || [];
+      seenMessageIds.current.set(dialog.id, new Set(msgs.map((message) => message.id)));
+      setSelected({ ...dialog, status: history.status, messages: msgs });
     } catch (err) {
       console.error('Failed to load full chat history:', err);
     }
@@ -203,8 +177,8 @@ export default function ChatsPage() {
           </h1>
           <p className="section-subtitle">
             {lang === 'kk'
-              ? 'Психолог жауабын күтіп тұрған диалогтар (нақты уақыт режимінде)'
-              : 'Диалоги, ожидающие ответа психолога (в реальном времени)'}
+              ? 'Психолог жауабын күтіп тұрған диалогтар автоматты түрде жаңартылады'
+              : 'Очередь обращений автоматически обновляется каждые несколько секунд'}
           </p>
         </div>
         {hasNewAlert && (
@@ -239,7 +213,7 @@ export default function ChatsPage() {
               <p className="text-zinc-500 dark:text-zinc-400 text-xs mt-1 max-w-[220px] mx-auto leading-relaxed">
                 {lang === 'kk'
                   ? 'Оқушылардан жаңа сұраныстар келгенде мұнда автоматты түрде пайда болады'
-                  : 'Новые запросы учеников появятся здесь автоматически в реальном времени'}
+                  : 'Новые запросы учеников появятся здесь автоматически через несколько секунд'}
               </p>
             </div>
           ) : (
@@ -365,8 +339,8 @@ export default function ChatsPage() {
                       {lang === 'kk' ? 'Анонимді диалог.' : 'Анонимный диалог.'}
                     </span>{' '}
                     {lang === 'kk'
-                      ? 'Төменде оқушының AI-ассистентпен алдын ала жазысқан тарихы көрсетілген.'
-                      : 'Ниже показана предыстория переписки ученика с AI-ассистентом.'}
+                      ? 'Төменде оқушының ИИ-помощникпен алдын ала жазысқан тарихы көрсетілген.'
+                      : 'Ниже показана предыстория переписки ученика с ИИ-помощником.'}
                   </div>
                 )}
 

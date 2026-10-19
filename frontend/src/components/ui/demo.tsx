@@ -27,17 +27,6 @@ export interface ClassRiskDataPoint {
   critical: number;
 }
 
-const defaultChartData: ClassRiskDataPoint[] = [
-  { name: "8А", norm: 18, medium: 5, high: 3, critical: 1 },
-  { name: "8Б", norm: 16, medium: 6, high: 4, critical: 2 },
-  { name: "9А", norm: 14, medium: 7, high: 5, critical: 2 },
-  { name: "9Б", norm: 12, medium: 8, high: 6, critical: 3 },
-  { name: "10А", norm: 20, medium: 4, high: 2, critical: 1 },
-  { name: "10Б", norm: 17, medium: 5, high: 3, critical: 1 },
-  { name: "11А", norm: 15, medium: 6, high: 4, critical: 2 },
-  { name: "11Б", norm: 13, medium: 7, high: 5, critical: 2 },
-];
-
 interface BarPatternChartProps {
   data?: ClassRiskDataPoint[];
   title?: string;
@@ -51,7 +40,7 @@ export default function BarPatternChart({
   description,
   lang = 'ru',
 }: BarPatternChartProps) {
-  const chartData = data && data.length > 0 ? data : defaultChartData;
+  const chartData = data ?? [];
 
   const resolvedTitle =
     title ||

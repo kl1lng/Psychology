@@ -1,11 +1,5 @@
-import { StitchLoader } from '@/components/ui/stitch-loader';
+import RouteLoading from '@/components/ui/route-loading';
 
-export default function AdminLoading() {
-  return (
-    <StitchLoader
-      type="admin"
-      title="Панель администратора"
-      subtitle="Загрузка реестра пользователей, кафедр и аналитики..."
-    />
-  );
+export default function Loading() {
+  return <RouteLoading />;
 }

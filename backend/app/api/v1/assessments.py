@@ -1,12 +1,12 @@
 import uuid
 import os
 from datetime import datetime
-from typing import Optional, List
+from typing import List
 
-from fastapi import APIRouter, HTTPException, Cookie
+from fastapi import APIRouter, HTTPException, Depends
 
-from app.core.security import decode_token
-from app.core.supabase import get_supabase
+from app.core.security import get_current_user
+from app.core.database import get_database
 from app.schemas.assessment import (
     AssessmentSubmit,
     AssessmentResult,
@@ -104,22 +104,23 @@ async def get_test(test_id: str, lang: str = "ru"):
 async def submit_assessment(
     payload: AssessmentSubmit,
     lang: str = "ru",
-    access_token: Optional[str] = Cookie(None),
+    _auth: dict = Depends(get_current_user),
 ):
-    # Identify student
-    student_id = payload.student_id
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        student_id = token_data.get("sub")
-
+    student_id = _auth.get("sub")
     if not student_id:
-        student_id = f"guest_anonymous"
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    if _auth.get("role") not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Прохождение опроса доступно ученику или анонимному участнику")
+    if payload.student_id and payload.student_id != student_id:
+        raise HTTPException(status_code=403, detail="Нельзя отправить ответы за другого ученика")
 
     # Score the assessment
     try:
         result = score_assessment(payload.test_id, payload.answers)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Тест '{payload.test_id}' не найден")
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при подсчёте баллов: {str(e)}")
 
@@ -162,9 +163,10 @@ async def submit_assessment(
             )
         )
 
-    # Save to Supabase
-    sb = get_supabase()
+    # Save to the local PostgreSQL database.
+    saved = False
     try:
+        sb = get_database()
         sb.table("assessment_results").insert({
             "id": result_id,
             "student_id": student_id,
@@ -175,6 +177,7 @@ async def submit_assessment(
             "answers_json": result["answers_json"],
             "created_at": now.isoformat(),
         }).execute()
+        saved = True
 
         # Save detailed question responses if available
         if result.get("question_responses"):
@@ -195,14 +198,16 @@ async def submit_assessment(
                 pass
 
         # Add reward points to student's balance (skip for guests)
-        if not student_id.startswith("guest"):
+        if _auth.get("role") != "guest":
             sb.rpc(
                 "increment_points",
                 {"user_id": student_id, "points": result["reward_points"]},
             ).execute()
     except Exception:
-        # Don't fail if DB is not configured yet
-        pass
+        if not saved:
+            raise HTTPException(status_code=503, detail="Не удалось сохранить результат. Повторите отправку позже.")
+        # The canonical answers are already saved; an optional reward failure
+        # must not turn a successful save into a duplicate-producing retry.
 
     # Dispatch critical risk emergency notification if risk is CRITICAL
     if result["overall_risk"] == RiskLevel.CRITICAL:

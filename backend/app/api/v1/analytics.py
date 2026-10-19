@@ -1,13 +1,88 @@
+from datetime import datetime, time, timedelta, timezone
+import uuid
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 
-from app.core.supabase import get_supabase
+from app.core.database import get_database
 from app.core.security import get_current_psychologist
 from app.schemas.assessment import RiskLevel, AnswerItem
 from app.services.scoring_engine import score_assessment
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+
+def _uuid_values(values: List[str]) -> List[str]:
+    valid = []
+    for value in values:
+        try:
+            valid.append(str(uuid.UUID(str(value))))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return valid
+
+
+@router.get("/activity")
+async def get_activity_history(
+    days: int = Query(30, ge=1, le=90),
+    _auth: dict = Depends(get_current_psychologist),
+):
+    """Return daily aggregate counts without exposing raw records to the browser."""
+    sb = get_database()
+    today = datetime.now(timezone.utc).date()
+    first_day = today - timedelta(days=days - 1)
+    cutoff = datetime.combine(first_day, time.min, tzinfo=timezone.utc).isoformat()
+
+    sources = {
+        "tests": "assessment_results",
+        "moods": "mood_entries",
+        "dialogs": "dialogs",
+    }
+    counts = {
+        key: { (first_day + timedelta(days=offset)).isoformat(): 0 for offset in range(days) }
+        for key in sources
+    }
+
+    for key, table in sources.items():
+        offset = 0
+        while True:
+            result = (
+                sb.table(table)
+                .select("created_at")
+                .gte("created_at", cutoff)
+                .order("created_at")
+                .range(offset, offset + 999)
+                .execute()
+            )
+            rows = result.data or []
+            for row in rows:
+                raw_created_at = row.get("created_at")
+                if not raw_created_at:
+                    continue
+                try:
+                    created_at = datetime.fromisoformat(str(raw_created_at).replace("Z", "+00:00"))
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    day = created_at.astimezone(timezone.utc).date().isoformat()
+                    if day in counts[key]:
+                        counts[key][day] += 1
+                except (TypeError, ValueError):
+                    continue
+            if len(rows) < 1000:
+                break
+            offset += len(rows)
+
+    return {
+        "items": [
+            {
+                "date": day,
+                "tests": counts["tests"][day],
+                "moods": counts["moods"][day],
+                "dialogs": counts["dialogs"][day],
+            }
+            for day in counts["tests"]
+        ]
+    }
 
 
 # ─── Get results with filters ─────────────────────────────────────────────────
@@ -19,43 +94,94 @@ async def get_results(
     offset: int = Query(0, ge=0),
     _auth: dict = Depends(get_current_psychologist),
 ):
-    sb = get_supabase()
+    sb = get_database()
 
-    query = (
-        sb.table("assessment_results")
-        .select(
-            "id, student_id, test_id, test_name, risk_level, reward_points, created_at, "
-            "users!inner(full_name, class_id, email)"
-        )
-        .order("created_at", desc=True)
-        .range(offset, offset + limit - 1)
-    )
+    query = sb.table("assessment_results").select(
+        "id, student_id, test_id, test_name, risk_level, reward_points, created_at"
+    ).order("created_at", desc=True)
 
     if risk_level:
         query = query.eq("risk_level", risk_level.value)
 
     if class_id:
-        query = query.eq("users.class_id", class_id)
+        class_students = sb.table("users").select("id").eq("role", "student").eq("class_id", class_id).execute().data or []
+        student_ids = [row["id"] for row in class_students]
+        if not student_ids:
+            return {"items": [], "total": 0, "offset": offset, "limit": limit}
+        query = query.in_("student_id", student_ids)
 
-    result = query.execute()
+    result = query.range(offset, offset + limit - 1).execute()
+    items = result.data or []
+    ids = _uuid_values(list({item.get("student_id") for item in items if item.get("student_id")}))
+    users = sb.table("users").select("id, full_name, class_id, email").in_("id", ids).execute().data if ids else []
+    user_map = {user["id"]: user for user in (users or [])}
+    for item in items:
+        item["users"] = user_map.get(item.get("student_id"))
 
     return {
-        "items": result.data or [],
-        "total": len(result.data or []),
+        "items": items,
+        "total": len(items),
         "offset": offset,
         "limit": limit,
     }
+
+
+@router.get("/monthly-comparison")
+async def get_monthly_comparison(
+    class_id: Optional[str] = Query(None),
+    _auth: dict = Depends(get_current_psychologist),
+):
+    """Compare repeated assessments for the same student and method across two 30-day periods."""
+    sb = get_database()
+    now = datetime.now(timezone.utc)
+    current_start = now - timedelta(days=30)
+    previous_start = now - timedelta(days=60)
+    rows = (
+        sb.table("assessment_results")
+        .select("id, student_id, test_id, test_name, risk_level, answers_json, created_at")
+        .gte("created_at", previous_start.isoformat())
+        .order("created_at", desc=True)
+        .limit(2000)
+        .execute()
+        .data or []
+    )
+    student_ids = _uuid_values(list({row.get("student_id") for row in rows if row.get("student_id")}))
+    users = sb.table("users").select("id, full_name, class_id").in_("id", student_ids).execute().data if student_ids else []
+    user_map = {user["id"]: user for user in (users or [])}
+    grouped: Dict[tuple, Dict[str, Any]] = {}
+    for row in rows:
+        user = user_map.get(row.get("student_id")) or {}
+        if class_id and user.get("class_id") != class_id:
+            continue
+        test_id = row.get("test_id")
+        answers = row.get("answers_json") or {}
+        if not test_id or not answers:
+            continue
+        try:
+            created = datetime.fromisoformat(str(row.get("created_at", "")).replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            scored = score_assessment(test_id, [AnswerItem(question_id=int(k), answer=int(v)) for k, v in answers.items() if str(k).isdigit()])
+        except Exception:
+            continue
+        period = "current" if created >= current_start else "previous"
+        key = (row.get("student_id"), test_id)
+        group = grouped.setdefault(key, {"student_id": row.get("student_id"), "student_name": user.get("full_name") or "—", "class_id": user.get("class_id") or "—", "test_id": test_id, "test_name": row.get("test_name") or test_id})
+        if period not in group:
+            group[period] = {"date": row.get("created_at"), "risk_level": row.get("risk_level"), "scales": [{"name": s.scale_name, "score": s.raw_score, "max_score": s.max_score} for s in scored["scales"]]}
+    items = [g for g in grouped.values() if "current" in g and "previous" in g]
+    return {"current_from": current_start.date().isoformat(), "previous_from": previous_start.date().isoformat(), "items": items}
 
 
 # ─── Get single assessment detail report with scale breakdown ────────────────
 @router.get("/assessment/{assessment_id}")
 async def get_assessment_detail(assessment_id: str, _auth: dict = Depends(get_current_psychologist)):
     """Retrieve full assessment record with recalculated scale scores for official PDF report."""
-    sb = get_supabase()
+    sb = get_database()
 
     res = (
         sb.table("assessment_results")
-        .select("*, users(full_name, class_id, email)")
+        .select("*")
         .eq("id", assessment_id)
         .execute()
     )
@@ -64,6 +190,9 @@ async def get_assessment_detail(assessment_id: str, _auth: dict = Depends(get_cu
         raise HTTPException(status_code=404, detail="Результат теста не найден")
 
     item = res.data[0]
+    student_id = item.get("student_id")
+    user = sb.table("users").select("full_name, class_id, email").eq("id", student_id).limit(1).execute().data if _uuid_values([student_id]) else []
+    item["users"] = user[0] if user else None
     test_id = item.get("test_id")
     answers_json = item.get("answers_json") or {}
 
@@ -131,7 +260,7 @@ async def get_student_results(student_id: str, _auth: dict = Depends(get_current
             "is_anonymous": True,
         }
 
-    sb = get_supabase()
+    sb = get_database()
 
     # Student info
     user_result = (
@@ -184,7 +313,7 @@ async def get_student_results(student_id: str, _auth: dict = Depends(get_current
 @router.get("/class-comparison")
 async def get_class_comparison(_auth: dict = Depends(get_current_psychologist)):
     """Group analytics: aggregate stress & risk distribution across classes/parallels."""
-    sb = get_supabase()
+    sb = get_database()
 
     # 1. Fetch all students with their class_id
     users_res = sb.table("users").select("id, class_id, full_name").eq("role", "student").execute()
@@ -265,7 +394,7 @@ _IN_MEMORY_NOTES: List[Dict[str, Any]] = []
 @router.get("/student/{student_id}/notes")
 async def get_student_notes(student_id: str, _auth: dict = Depends(get_current_psychologist)):
     """Fetch confidential psychologist notes for a student."""
-    sb = get_supabase()
+    sb = get_database()
     try:
         res = (
             sb.table("psychologist_notes")
@@ -306,7 +435,7 @@ async def add_student_note(
         "created_at": now_iso,
     }
 
-    sb = get_supabase()
+    sb = get_database()
     try:
         res = (
             sb.table("psychologist_notes")
@@ -326,7 +455,7 @@ async def add_student_note(
 @router.get("/dashboard")
 async def get_dashboard(_auth: dict = Depends(get_current_psychologist)):
     """Summary stats and early warning risks for psychologist dashboard."""
-    sb = get_supabase()
+    sb = get_database()
 
     # 1. Risk level counts
     results = sb.table("assessment_results").select("student_id, test_id, test_name, risk_level, created_at").execute()

@@ -3,29 +3,16 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Cookie, status
+from fastapi import APIRouter, HTTPException, Depends, status
 
-from app.core.security import decode_token
-from app.core.supabase import get_supabase
+from app.core.security import get_current_user, get_current_psychologist
+from app.core.database import get_database
 from app.schemas.appointment import AppointmentCreate, AppointmentResponse
 from app.schemas.chat import DialogStatus, SenderRole
 from app.services.alerts import notify_emergency
 
 logger = logging.getLogger("aisezim.appointments")
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
-
-ANONYMOUS_USER_ID = "00000000-0000-0000-0000-000000000000"
-
-
-def _is_valid_uuid(val: Optional[str]) -> bool:
-    if not val:
-        return False
-    try:
-        uuid.UUID(str(val))
-        return True
-    except (ValueError, AttributeError, TypeError):
-        return False
-
 
 # In-memory fallback in case the database table hasn't been migrated yet
 _IN_MEMORY_APPOINTMENTS: List[dict] = []
@@ -34,21 +21,20 @@ _IN_MEMORY_APPOINTMENTS: List[dict] = []
 @router.post("/book", response_model=AppointmentResponse, status_code=status.HTTP_201_CREATED)
 async def book_appointment(
     payload: AppointmentCreate,
-    access_token: Optional[str] = Cookie(None),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Book an appointment with the school psychologist.
     Creates an appointment record and updates the active chat dialog to WAITING_PSYCHOLOGIST.
     """
     # 1. Resolve student_id
-    student_id = payload.student_id
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        if token_data:
-            student_id = token_data.get("sub")
-
-    if not student_id or not _is_valid_uuid(student_id):
-        student_id = ANONYMOUS_USER_ID
+    if current_user.get("role") not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Записаться к психологу могут только ученики")
+    # Keep guest session IDs intact so this appointment can link to that guest's
+    # chat dialog. The column is TEXT and must not collapse guests to one sentinel.
+    student_id = current_user["sub"]
+    if payload.student_id and payload.student_id != student_id:
+        raise HTTPException(status_code=403, detail="Нельзя создать запись от имени другого пользователя")
 
     appointment_id = str(uuid.uuid4())
     now = datetime.utcnow()
@@ -69,9 +55,9 @@ async def book_appointment(
             "До тех пор постарайся позаботиться о себе 🤍"
         )
 
-    sb = get_supabase()
+    sb = get_database()
 
-    # 3. Save into Supabase 'appointments' table if available, with graceful fallback
+    # 3. Save to the local appointments table, with graceful process-memory fallback.
     try:
         sb.table("appointments").insert({
             "id": appointment_id,
@@ -84,7 +70,7 @@ async def book_appointment(
             "updated_at": now_iso,
         }).execute()
     except Exception as e:
-        logger.info(f"Supabase appointments insert notice: {str(e)}. Storing in fallback.")
+        logger.warning("Local appointments insert failed; storing in process memory")
         _IN_MEMORY_APPOINTMENTS.append({
             "id": appointment_id,
             "student_id": student_id,
@@ -147,10 +133,10 @@ async def book_appointment(
 @router.get("/", response_model=List[dict])
 async def list_appointments(
     status_filter: Optional[str] = None,
-    access_token: Optional[str] = Cookie(None),
+    _auth: dict = Depends(get_current_psychologist),
 ):
     """List appointments for psychologist dashboard."""
-    sb = get_supabase()
+    sb = get_database()
     try:
         query = sb.table("appointments").select("*").order("created_at", desc=True)
         if status_filter:

@@ -12,7 +12,7 @@ from app.core.security import (
     generate_guest_token,
     decode_token,
 )
-from app.core.supabase import get_supabase
+from app.core.database import get_database
 from app.core.departments_store import DepartmentStore
 from app.schemas.user import UserCreate, UserLogin, Token, UserOut, GuestToken, UserRole
 
@@ -22,19 +22,19 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 # ─── Register ─────────────────────────────────────────────────────────────────
 @router.post("/register", response_model=Token)
 async def register(payload: UserCreate, response: Response):
-    sb = get_supabase()
+    # Public signup must not grant staff access to student records.
+    if payload.role in (UserRole.ADMIN, UserRole.PSYCHOLOGIST):
+        raise HTTPException(
+            status_code=403,
+            detail="Учётные записи сотрудников создаёт администратор школы",
+        )
+
+    sb = get_database()
 
     # Check if email already exists
     existing = sb.table("users").select("id").eq("email", payload.email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="Пользователь с таким email уже зарегистрирован")
-
-    # Disallow self-registration as admin
-    if payload.role == UserRole.ADMIN:
-        raise HTTPException(
-            status_code=403,
-            detail="Регистрация администраторов доступна только из консоли управления",
-        )
 
     department_id = None
 
@@ -100,7 +100,7 @@ async def register(payload: UserCreate, response: Response):
         elif "row-level security" in err_msg.lower() or "42501" in err_msg:
             raise HTTPException(
                 status_code=500,
-                detail="Ошибка доступа к БД (Supabase RLS). Выполните SQL политику или укажите service_role_key в .env",
+                detail="Ошибка доступа к локальной базе данных. Проверьте запуск PostgreSQL/PostgREST и права роли приложения.",
             )
         else:
             raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {err_msg}")
@@ -137,7 +137,7 @@ async def register(payload: UserCreate, response: Response):
 # ─── Login ────────────────────────────────────────────────────────────────────
 @router.post("/login", response_model=Token)
 async def login(payload: UserLogin, response: Response):
-    sb = get_supabase()
+    sb = get_database()
 
     result = sb.table("users").select("*").eq("email", payload.email).execute()
     if not result.data:
@@ -232,7 +232,7 @@ async def get_me(access_token: Optional[str] = Cookie(None)):
             points_balance=0,
         )
 
-    sb = get_supabase()
+    sb = get_database()
     result = sb.table("users").select("*").eq("id", user_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Пользователь не найден")

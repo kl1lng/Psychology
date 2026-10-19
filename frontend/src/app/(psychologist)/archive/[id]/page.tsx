@@ -158,62 +158,18 @@ export default function StudentCardPage() {
 
   const { student, assessments = [], mood_entries = [], risk_summary } = data;
 
-  // ─── 1. Build Radar Data from Assessment Psychological Profile ────────────
-  const motivationTests = assessments.filter((a) => a.test_id === 'luskanova_motivation');
-  const anxietyTests = assessments.filter((a) => a.test_id === 'phillips_school');
-  const personalityTests = assessments.filter((a) => a.test_id === 'eysenck_epi_a');
-  const vocationalTests = assessments.filter((a) => a.test_id === 'klimov_ddo');
-
-  const avgMotivation = motivationTests.length > 0
-    ? Math.round(motivationTests.reduce((acc, t) => acc + (t.raw_score || (t.risk_level === 'LOW' ? 26 : t.risk_level === 'MEDIUM' ? 18 : 8)), 0) / motivationTests.length / 30 * 100)
-    : 75;
-
-  const avgResilience = mood_entries.length > 0
-    ? Math.round(100 - (mood_entries.reduce((acc, m) => acc + m.stress_level, 0) / mood_entries.length * 10))
-    : 70;
-
-  const avgCalmness = anxietyTests.length > 0
-    ? (anxietyTests[0].risk_level === 'CRITICAL' ? 25 : anxietyTests[0].risk_level === 'HIGH' ? 45 : anxietyTests[0].risk_level === 'MEDIUM' ? 70 : 90)
-    : 80;
-
-  const avgSociability = personalityTests.length > 0
-    ? (personalityTests[0].risk_level === 'LOW' ? 85 : 65)
-    : 75;
-
-  const avgVocational = vocationalTests.length > 0 ? 90 : 60;
-
-  const radarData = [
-    {
-      subject: lang === 'kk' ? 'Оқу мотивациясы' : 'Учебная мотивация',
-      A: avgMotivation,
-      fullMark: 100,
-    },
-    {
-      subject: lang === 'kk' ? 'Стресске төзімділік' : 'Стрессоустойчивость',
-      A: avgResilience,
-      fullMark: 100,
-    },
-    {
-      subject: lang === 'kk' ? 'Эмоционалды тыныштық' : 'Эмоциональный покой',
-      A: avgCalmness,
-      fullMark: 100,
-    },
-    {
-      subject: lang === 'kk' ? 'Әлеуметтену' : 'Социализация',
-      A: avgSociability,
-      fullMark: 100,
-    },
-    {
-      subject: lang === 'kk' ? 'Кәсіби айқындық' : 'Проф. ориентация',
-      A: avgVocational,
-      fullMark: 100,
-    },
-  ];
+  // Only recorded counts are displayed; no inferred personality scores.
+  const riskTotal = Object.values(risk_summary).reduce((sum, count) => sum + count, 0);
+  const radarData = (['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as RiskLevel[]).map((risk) => ({
+    subject: getRiskLabel(risk, lang),
+    A: riskTotal ? Math.round((risk_summary[risk] || 0) / riskTotal * 100) : 0,
+    fullMark: 100,
+  }));
 
   // Average stress
   const avgStress = mood_entries.length > 0
     ? (mood_entries.reduce((acc, m) => acc + m.stress_level, 0) / mood_entries.length).toFixed(1)
-    : '3.2';
+    : '—';
 
   const hasCritical = (risk_summary.CRITICAL || 0) > 0;
   const hasHigh = (risk_summary.HIGH || 0) > 0;
@@ -248,11 +204,11 @@ export default function StudentCardPage() {
           className="flex items-center gap-1.5 hover:text-brand-600 dark:hover:text-brand-400 transition-colors group"
         >
           <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-          <span>{lang === 'kk' ? 'Картотекаға оралу' : 'Back to Registry'}</span>
+          <span>{lang === 'kk' ? 'Картотекаға оралу' : 'Назад в картотеку'}</span>
         </Link>
         <span className="text-zinc-300 dark:text-zinc-700">/</span>
         <span className="text-zinc-900 dark:text-zinc-100 font-bold">
-          {lang === 'kk' ? 'Оқушының кешенді картасы' : 'Student Comprehensive Profile'}
+          {lang === 'kk' ? 'Оқушының кешенді картасы' : 'Карта ученика'}
         </span>
       </nav>
 
@@ -272,8 +228,8 @@ export default function StudentCardPage() {
             <User size={14} />
             <span>
               {student.class_id
-                ? `${lang === 'kk' ? 'Сынып' : 'Grade'} ${student.class_id}`
-                : (lang === 'kk' ? 'Сынып белгіленбеген' : 'Grade not set')}
+                ? `${lang === 'kk' ? 'Сынып' : 'Класс'} ${student.class_id}`
+                : (lang === 'kk' ? 'Сынып белгіленбеген' : 'Класс не указан')}
             </span>
           </div>
 
@@ -299,7 +255,7 @@ export default function StudentCardPage() {
               }`}
             />
             <span className="text-xs font-bold">
-              {lang === 'kk' ? `Стресс көрсеткіші: ${avgStress}` : `Stress Rating: ${avgStress}`}
+              {lang === 'kk' ? `Стресс көрсеткіші: ${avgStress}` : `Уровень стресса: ${avgStress}`}
             </span>
           </div>
 
@@ -307,7 +263,7 @@ export default function StudentCardPage() {
           <div className="grid grid-cols-3 gap-2 w-full mt-6 pt-5 border-t border-zinc-100 dark:border-zinc-800">
             <div className="p-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/40">
               <div className="text-[10px] text-zinc-400 font-medium">
-                {lang === 'kk' ? 'Тесттер' : 'Tests'}
+                {lang === 'kk' ? 'Тесттер' : 'Тесты'}
               </div>
               <div className="text-base font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5">
                 {assessments.length}
@@ -315,7 +271,7 @@ export default function StudentCardPage() {
             </div>
             <div className="p-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/40">
               <div className="text-[10px] text-zinc-400 font-medium">
-                {lang === 'kk' ? 'Көңіл-күй' : 'Moods'}
+                {lang === 'kk' ? 'Көңіл-күй' : 'Настроение'}
               </div>
               <div className="text-base font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">
                 {mood_entries.length}
@@ -323,7 +279,7 @@ export default function StudentCardPage() {
             </div>
             <div className="p-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/40">
               <div className="text-[10px] text-zinc-400 font-medium">
-                {lang === 'kk' ? 'Ұпайлар' : 'Points'}
+                {lang === 'kk' ? 'Ұпайлар' : 'Баллы'}
               </div>
               <div className="text-base font-extrabold text-brand-600 dark:text-brand-400 mt-0.5">
                 {student.points_balance || 0}
@@ -338,12 +294,12 @@ export default function StudentCardPage() {
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                 <Activity size={18} className="text-brand-500" />
-                <span>360° Persona</span>
+                <span>{lang === 'kk' ? 'Нәтижелердің таралуы' : 'Распределение результатов'}</span>
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 {lang === 'kk'
-                  ? 'Диагностикалық тестілеулер бойынша жинақталған психологиялық бейне'
-                  : 'Multidimensional personality & mental wellness radar'}
+                  ? 'Қауіп деңгейлері бойынша тіркелген нәтижелердің үлесі, %'
+                  : 'Доля записанных результатов по уровням риска, %'}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -389,19 +345,19 @@ export default function StudentCardPage() {
           {/* Risk Summary Pills inside 360° block */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-zinc-100 dark:border-zinc-800 text-xs">
             <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
-              <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{lang === 'kk' ? 'Қалыпты' : 'Low'}:</span>
+              <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{lang === 'kk' ? 'Қалыпты' : 'Низкий'}:</span>
               <span className="font-extrabold text-zinc-900 dark:text-zinc-100">{risk_summary.LOW}</span>
             </div>
             <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
-              <span className="text-amber-700 dark:text-amber-400 font-semibold">{lang === 'kk' ? 'Орташа' : 'Medium'}:</span>
+              <span className="text-amber-700 dark:text-amber-400 font-semibold">{lang === 'kk' ? 'Орташа' : 'Средний'}:</span>
               <span className="font-extrabold text-zinc-900 dark:text-zinc-100">{risk_summary.MEDIUM}</span>
             </div>
             <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-between">
-              <span className="text-orange-700 dark:text-orange-400 font-semibold">{lang === 'kk' ? 'Жоғары' : 'High'}:</span>
+              <span className="text-orange-700 dark:text-orange-400 font-semibold">{lang === 'kk' ? 'Жоғары' : 'Высокий'}:</span>
               <span className="font-extrabold text-zinc-900 dark:text-zinc-100">{risk_summary.HIGH}</span>
             </div>
             <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-between">
-              <span className="text-rose-700 dark:text-rose-400 font-semibold">{lang === 'kk' ? 'Қауіпті' : 'Critical'}:</span>
+              <span className="text-rose-700 dark:text-rose-400 font-semibold">{lang === 'kk' ? 'Қауіпті' : 'Критический'}:</span>
               <span className="font-extrabold text-zinc-900 dark:text-zinc-100">{risk_summary.CRITICAL}</span>
             </div>
           </div>
@@ -412,10 +368,10 @@ export default function StudentCardPage() {
           <div className="flex justify-between items-center mb-3 pb-3 border-b border-zinc-200 dark:border-zinc-800">
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
               <CalendarDays size={18} className="text-brand-500" />
-              <span>{lang === 'kk' ? 'Хронологиялық бақылау тарихы' : 'Longitudinal Timeline'}</span>
+              <span>{lang === 'kk' ? 'Хронологиялық бақылау тарихы' : 'История наблюдений'}</span>
             </h2>
             <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
-              {timelineEvents.length} {lang === 'kk' ? 'жазба' : 'events'}
+              {timelineEvents.length} {lang === 'kk' ? 'жазба' : 'событий'}
             </span>
           </div>
 
@@ -423,7 +379,7 @@ export default function StudentCardPage() {
             {timelineEvents.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center text-zinc-400 text-xs">
                 <FileSpreadsheet size={28} className="mb-1 text-zinc-300 dark:text-zinc-600" />
-                <span>{lang === 'kk' ? 'Әзірге оқиғалар жазылмаған' : 'No recorded events yet'}</span>
+                <span>{lang === 'kk' ? 'Әзірге оқиғалар жазылмаған' : 'Событий пока нет'}</span>
               </div>
             ) : (
               timelineEvents.map((evt, idx) => (
@@ -489,11 +445,11 @@ export default function StudentCardPage() {
           <div className="flex justify-between items-center mb-3 pb-3 border-b border-zinc-200 dark:border-zinc-800">
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
               <Lock size={16} className="text-rose-500" />
-              <span>{lang === 'kk' ? 'Құпия жазбалар' : 'Private Notes'}</span>
+              <span>{lang === 'kk' ? 'Құпия жазбалар' : 'Личные заметки'}</span>
             </h2>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
               <ShieldCheck size={12} className="text-emerald-500" />
-              <span>{lang === 'kk' ? 'Шифрланған' : 'Encrypted'}</span>
+              <span>{lang === 'kk' ? 'Шифрланған' : 'Конфиденциально'}</span>
             </span>
           </div>
 
@@ -506,7 +462,7 @@ export default function StudentCardPage() {
                 placeholder={
                   lang === 'kk'
                     ? 'Оқушы туралы кәсіби бақылауларыңыз бен ұсыныстарыңызды жазыңыз...'
-                    : 'Enter strictly confidential observations here. Content is encrypted...'
+                    : 'Введите наблюдения психолога…'
                 }
                 rows={2}
                 className="w-full rounded-2xl border border-zinc-200 dark:border-zinc-700/80 p-3 pr-10 text-xs text-zinc-900 dark:text-zinc-100 bg-zinc-50 dark:bg-zinc-800/60 resize-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition-all placeholder:text-zinc-400"
@@ -525,7 +481,7 @@ export default function StudentCardPage() {
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {notes.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center text-zinc-400 text-xs">
-                  <span>{lang === 'kk' ? 'Бұл оқушы бойынша жазбалар әзірге жоқ' : 'No private notes yet'}</span>
+                  <span>{lang === 'kk' ? 'Бұл оқушы бойынша жазбалар әзірге жоқ' : 'Личных заметок пока нет'}</span>
                 </div>
               ) : (
                 notes.map((n) => (
@@ -536,7 +492,7 @@ export default function StudentCardPage() {
                     <div className="flex items-center justify-between text-[10px] text-zinc-400">
                       <span className="font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
                         <Lock size={10} className="text-rose-500" />
-                        <span>{lang === 'kk' ? 'Психолог жазбасы' : 'Psychologist Note'}</span>
+                        <span>{lang === 'kk' ? 'Психолог жазбасы' : 'Заметка психолога'}</span>
                       </span>
                       <span>{formatDate(n.created_at)}</span>
                     </div>

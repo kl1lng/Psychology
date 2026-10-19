@@ -9,6 +9,7 @@ Supports:
 """
 import json
 import os
+import re
 from typing import Dict, List, Any
 
 from app.schemas.assessment import RiskLevel, ScaleResult, AnswerItem
@@ -17,6 +18,8 @@ TESTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "te
 
 
 def load_test_config(test_id: str) -> Dict[str, Any]:
+    if not re.fullmatch(r"[a-z0-9_]+", test_id):
+        raise FileNotFoundError("Неизвестная методика")
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Test config not found: {test_id}")
@@ -90,6 +93,17 @@ def score_assessment(test_id: str, answers: List[AnswerItem]) -> Dict[str, Any]:
     config = load_test_config(test_id)
     scoring_type = config.get("scoring_type", "binary")
 
+    questions = config.get("questions", [])
+    expected_ids = {q["id"] for q in questions}
+    supplied_ids = [answer.question_id for answer in answers]
+    if len(supplied_ids) != len(set(supplied_ids)) or set(supplied_ids) != expected_ids:
+        raise ValueError("Необходимо ответить на все вопросы без пропусков и повторов")
+    for question in questions:
+        allowed = {option["value"] for option in question.get("options", [])} or {0, 1}
+        value = next(answer.answer for answer in answers if answer.question_id == question["id"])
+        if value not in allowed:
+            raise ValueError(f"Недопустимый вариант ответа на вопрос {question['id']}")
+
     # Build answer dict {question_id: answer_value}
     answers_dict: Dict[int, int] = {a.question_id: a.answer for a in answers}
 
@@ -103,7 +117,7 @@ def score_assessment(test_id: str, answers: List[AnswerItem]) -> Dict[str, Any]:
             pct = round((total_score / max_s * 100), 1) if max_s > 0 else 0
 
             interpretation = "Норма"
-            for interp in scale.get("interpretations", []):
+            for interp in sorted(scale.get("interpretations", []), key=lambda item: item["min"], reverse=True):
                 if total_score >= interp["min"]:
                     interpretation = interp["text"]
                     break
@@ -125,7 +139,7 @@ def score_assessment(test_id: str, answers: List[AnswerItem]) -> Dict[str, Any]:
             pct = round((raw / max_s * 100), 1) if max_s > 0 else 0
 
             interpretation = "Норма"
-            for interp in scale.get("interpretations", []):
+            for interp in sorted(scale.get("interpretations", []), key=lambda item: item["min"], reverse=True):
                 if raw >= interp["min"]:
                     interpretation = interp["text"]
                     break
@@ -141,7 +155,11 @@ def score_assessment(test_id: str, answers: List[AnswerItem]) -> Dict[str, Any]:
             )
 
     thresholds = config.get("risk_thresholds", {})
-    risk = _determine_risk(scale_results, thresholds, scoring_type)
+    risk_scales = scale_results
+    if test_id == "eysenck_epi_a":
+        # Sociability and response validity are not distress measures.
+        risk_scales = [result for definition, result in zip(config["scales"], scale_results) if definition["id"] == "neuroticism"]
+    risk = RiskLevel.LOW if test_id == "klimov_ddo" else _determine_risk(risk_scales, thresholds, scoring_type)
     points = _calc_reward_points(risk)
 
     def _extract_str(val):

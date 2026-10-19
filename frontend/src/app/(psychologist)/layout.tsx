@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/navigation-link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Archive,
+  ClipboardCheck,
   MessageSquare,
   Upload,
   LogOut,
@@ -22,6 +23,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { HeaderControls } from '@/components/ui/header-controls';
 import { StitchLoader } from '@/components/ui/stitch-loader';
 import { LogoIcon } from '@/components/ui/logo-icon';
+import { intakesApi } from '@/lib/api';
 
 export default function PsychologistLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -29,12 +31,15 @@ export default function PsychologistLayout({ children }: { children: React.React
   const { user, role, isLoading, logout } = useAuth();
   const { lang, setLang, t } = useLanguage();
   const { theme, setTheme } = useTheme();
+  const isDemo = process.env.NODE_ENV === 'development' && user?.id === 'local-demo-psychologist';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [unsignedIntakeCount, setUnsignedIntakeCount] = useState(0);
 
   const navItems = [
     { href: '/dashboard',       label: t.sidebar.dashboard,      icon: LayoutDashboard },
     { href: '/chats',           label: t.sidebar.dialogs,        icon: MessageSquare },
     { href: '/archive',         label: t.sidebar.archive,        icon: Archive },
+    { href: '/intakes',         label: lang === 'kk' ? 'Қабылдау журналы' : 'Журнал приёмов', icon: ClipboardCheck },
     { href: '/qa-moderation',   label: t.sidebar.qaModeration,   icon: HelpCircle },
     { href: '/podcasts/upload', label: t.sidebar.managePodcasts, icon: Upload },
   ];
@@ -48,6 +53,17 @@ export default function PsychologistLayout({ children }: { children: React.React
       }
     }
   }, [user, role, isLoading, router]);
+
+  useEffect(() => {
+    if (isDemo || role !== 'psychologist') return;
+    let active = true;
+    const refreshUnsigned = () => intakesApi.list().then(({ data }) => {
+      if (active) setUnsignedIntakeCount((data || []).filter((item: { paper_signed: boolean }) => !item.paper_signed).length);
+    }).catch(() => undefined);
+    void refreshUnsigned();
+    const timer = window.setInterval(refreshUnsigned, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [isDemo, role]);
 
   if (isLoading) {
     return (
@@ -235,12 +251,13 @@ export default function PsychologistLayout({ children }: { children: React.React
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {navItems.map(({ href, label, icon: Icon }) => {
+          {navItems.filter((item) => !isDemo || item.href === '/dashboard').map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href || pathname.startsWith(href);
             return (
               <Link key={href} href={href} className={isActive ? 'nav-link-active' : 'nav-link'}>
                 <Icon size={16} strokeWidth={2} />
                 <span className="text-sm">{label}</span>
+                {href === '/intakes' && unsignedIntakeCount > 0 && <span className="ml-auto min-w-5 rounded-full bg-amber-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">{unsignedIntakeCount}</span>}
               </Link>
             );
           })}
@@ -261,8 +278,9 @@ export default function PsychologistLayout({ children }: { children: React.React
           { href: '/dashboard', label: lang === 'kk' ? 'Басқару' : 'Дашборд', icon: LayoutDashboard },
           { href: '/chats', label: lang === 'kk' ? 'Чаттар' : 'Чаты', icon: MessageSquare },
           { href: '/archive', label: lang === 'kk' ? 'Картотека' : 'Архив', icon: Archive },
-          { href: '/qa-moderation', label: 'Q&A', icon: HelpCircle },
-        ].map(({ href, label, icon: Icon }) => {
+          { href: '/intakes', label: lang === 'kk' ? 'Қабылдау' : 'Приёмы', icon: ClipboardCheck },
+          { href: '/qa-moderation', label: 'Вопросы', icon: HelpCircle },
+        ].filter((item) => !isDemo || item.href === '/dashboard').map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(href);
           return (
             <Link
@@ -283,7 +301,7 @@ export default function PsychologistLayout({ children }: { children: React.React
 
       <main className="flex-1 ml-0 md:ml-64 min-h-screen bg-white dark:bg-black pt-16 md:pt-0 pb-24 md:pb-8 transition-colors duration-300">
         <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto animate-fade-in">
-          {children}
+          {isDemo && pathname !== '/dashboard' ? <p className="p-6">Демо-режим доступен только в кабинете обзора.</p> : children}
         </div>
       </main>
     </div>

@@ -10,9 +10,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Supabase
-    supabase_url: str = ""
-    supabase_key: str = ""
+    # Private in-network PostgREST endpoint backed by the project's PostgreSQL database.
+    database_api_url: str = "http://localhost:3001"
+    internal_database_jwt_secret: str = ""
+    local_storage_path: str = "static"
 
     # JWT
     jwt_secret_key: str = "change-me-in-production"

@@ -1,11 +1,5 @@
-import { StitchLoader } from '@/components/ui/stitch-loader';
+import RouteLoading from '@/components/ui/route-loading';
 
-export default function PsychologistLoading() {
-  return (
-    <StitchLoader
-      type="psychologist"
-      title="Кабинет психолога"
-      subtitle="Загрузка аналитики рисков, архива консультаций и тестов..."
-    />
-  );
+export default function Loading() {
+  return <RouteLoading />;
 }

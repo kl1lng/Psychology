@@ -21,7 +21,6 @@ import {
 import { LogoIcon } from '@/components/ui/logo-icon';
 import { authApi } from '@/lib/api';
 import Cookies from 'js-cookie';
-import type { UserRole } from '@/types/user';
 
 type RegisterRole = 'student' | 'teacher' | 'psychologist';
 
@@ -98,7 +97,7 @@ export default function RegisterPage() {
       // Dynamic redirect based on user role
       setTimeout(() => {
         if (user.role === 'teacher') {
-          router.push('/dashboard');
+          router.push('/teacher/dashboard');
         } else if (user.role === 'psychologist') {
           router.push('/dashboard');
         } else if (user.role === 'admin') {

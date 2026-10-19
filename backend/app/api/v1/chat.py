@@ -2,10 +2,10 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Cookie
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.security import decode_token
-from app.core.supabase import get_supabase
+from app.core.security import get_current_psychologist, get_current_user
+from app.core.database import get_database
 from app.schemas.chat import (
     SendMessage,
     ChatMessage,
@@ -37,9 +37,6 @@ def _is_valid_uuid(val: Optional[str]) -> bool:
 
 def _get_or_create_dialog(sb, student_id: str) -> dict:
     """Get active dialog or create a new one."""
-    if not _is_valid_uuid(student_id):
-        student_id = ANONYMOUS_USER_ID
-
     try:
         existing = (
             sb.table("dialogs")
@@ -100,18 +97,13 @@ def _save_message(sb, dialog_id: str, sender_role: SenderRole, content: str) -> 
 @router.post("/message")
 async def send_message(
     payload: SendMessage,
-    access_token: Optional[str] = Cookie(None),
+    current_user: dict = Depends(get_current_user),
 ):
-    student_id = payload.student_id
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        if token_data:
-            student_id = token_data.get("sub")
+    if current_user.get("role") not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Чат доступен ученикам")
+    student_id = current_user["sub"]
 
-    if not student_id or not _is_valid_uuid(student_id):
-        student_id = ANONYMOUS_USER_ID
-
-    sb = get_supabase()
+    sb = get_database()
     dialog = _get_or_create_dialog(sb, student_id)
     dialog_id = dialog["id"]
     current_status = dialog["status"]
@@ -157,9 +149,22 @@ async def send_message(
 
 # ─── Psychologist reply to student ───────────────────────────────────────────
 @router.post("/reply", response_model=ChatMessage)
-async def reply_message(payload: ReplyMessage):
+async def reply_message(
+    payload: ReplyMessage,
+    _: dict = Depends(get_current_psychologist),
+):
     """Psychologist responds to an open student dialog."""
-    sb = get_supabase()
+    sb = get_database()
+
+    dialog_result = (
+        sb.table("dialogs")
+        .select("id")
+        .eq("id", payload.dialog_id)
+        .limit(1)
+        .execute()
+    )
+    if not dialog_result.data:
+        raise HTTPException(status_code=404, detail="Диалог не найден")
 
     # Save message as PSYCHOLOGIST
     saved_msg = _save_message(sb, payload.dialog_id, SenderRole.PSYCHOLOGIST, payload.content)
@@ -182,17 +187,13 @@ async def reply_message(payload: ReplyMessage):
 @router.post("/call-psychologist", response_model=CallPsychologistResponse)
 async def call_psychologist(
     payload: CallPsychologistRequest,
-    access_token: Optional[str] = Cookie(None),
+    current_user: dict = Depends(get_current_user),
 ):
-    student_id = payload.student_id
-    if not student_id and access_token:
-        token_data = decode_token(access_token)
-        if token_data:
-            student_id = token_data.get("sub")
-    if not student_id or not _is_valid_uuid(student_id):
-        student_id = ANONYMOUS_USER_ID
+    if current_user.get("role") not in ("student", "guest"):
+        raise HTTPException(status_code=403, detail="Запрос психологу доступен ученикам")
+    student_id = current_user["sub"]
 
-    sb = get_supabase()
+    sb = get_database()
     dialog = _get_or_create_dialog(sb, student_id)
     dialog_id = dialog["id"]
 
@@ -230,12 +231,29 @@ async def call_psychologist(
 # ─── Get messages by dialog_id (strictly by dialog_id without users join) ──────
 @router.get("/dialog/{dialog_id}/messages", response_model=List[ChatMessage])
 @router.get("/messages/{dialog_id}", response_model=List[ChatMessage])
-async def get_dialog_messages(dialog_id: str):
+async def get_dialog_messages(
+    dialog_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Get all messages for a specific dialog strictly by dialog_id.
-    Does not require a user profile or any foreign key joins.
+    Checks JWT ownership without requiring a users-table join.
     """
-    sb = get_supabase()
+    sb = get_database()
+    role = current_user.get("role")
+    if role not in ("psychologist", "admin"):
+        dialog_result = (
+            sb.table("dialogs")
+            .select("student_id")
+            .eq("id", dialog_id)
+            .limit(1)
+            .execute()
+        )
+        if not dialog_result.data:
+            return []
+        if dialog_result.data[0].get("student_id") != current_user.get("sub"):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому диалогу")
+
     try:
         messages_result = (
             sb.table("chat_messages")
@@ -261,30 +279,30 @@ async def get_dialog_messages(dialog_id: str):
 
 # ─── Get chat history ─────────────────────────────────────────────────────────
 @router.get("/history/{identifier}", response_model=DialogOut)
-async def get_chat_history(identifier: str):
+async def get_chat_history(
+    identifier: str,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Get chat history by either student_id or dialog_id.
     Always returns the complete array of messages.
     """
-    sb = get_supabase()
+    sb = get_database()
     dialog = None
+    role = current_user.get("role")
+    is_psychologist = role in ("psychologist", "admin")
+    subject = current_user["sub"]
 
-    # 1. Try finding by dialog id first
-    try:
-        d_res = sb.table("dialogs").select("*").eq("id", identifier).limit(1).execute()
-        if d_res.data:
-            dialog = d_res.data[0]
-    except Exception:
-        pass
+    if not is_psychologist and identifier != subject and not _is_valid_uuid(identifier):
+        raise HTTPException(status_code=403, detail="Нет доступа к этой переписке")
 
-    # 2. If not found by dialog id, try by student_id
-    if not dialog:
-        student_id = identifier if _is_valid_uuid(identifier) else ANONYMOUS_USER_ID
+    # Students and guests can look up only their own student_id or dialog id.
+    if not is_psychologist and identifier == subject:
         try:
             d_res = (
                 sb.table("dialogs")
                 .select("*")
-                .eq("student_id", student_id)
+                .eq("student_id", subject)
                 .order("created_at", desc=True)
                 .limit(1)
                 .execute()
@@ -293,16 +311,43 @@ async def get_chat_history(identifier: str):
                 dialog = d_res.data[0]
         except Exception:
             pass
+    else:
+        # Psychologists/admins may look up any dialog; students may supply a dialog id
+        # only, which is checked against their token subject below.
+        try:
+            d_res = sb.table("dialogs").select("*").eq("id", identifier).limit(1).execute()
+            if d_res.data:
+                dialog = d_res.data[0]
+        except Exception:
+            pass
+
+        if dialog and not is_psychologist and dialog.get("student_id") != subject:
+            raise HTTPException(status_code=403, detail="Нет доступа к этой переписке")
+
+        if not dialog and is_psychologist:
+            try:
+                d_res = (
+                    sb.table("dialogs")
+                    .select("*")
+                    .eq("student_id", identifier if _is_valid_uuid(identifier) else ANONYMOUS_USER_ID)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if d_res.data:
+                    dialog = d_res.data[0]
+            except Exception:
+                pass
 
     if not dialog:
         # Fallback dummy dialog if none found
         dialog_id = identifier if _is_valid_uuid(identifier) else str(uuid.uuid4())
         return DialogOut(
             id=dialog_id,
-            student_id=ANONYMOUS_USER_ID,
+            student_id=subject if not is_psychologist else ANONYMOUS_USER_ID,
             status=DialogStatus.BOT,
-            student_name="Анонимді оқушы",
-            is_anonymous=True,
+            student_name="Анонимді оқушы" if not is_psychologist or subject == ANONYMOUS_USER_ID else None,
+            is_anonymous=role == "guest" or (is_psychologist and subject == ANONYMOUS_USER_ID),
             created_at=datetime.utcnow(),
             messages=[],
         )
@@ -352,8 +397,10 @@ async def get_chat_history(identifier: str):
 
 # ─── List dialogs waiting for psychologist ────────────────────────────────────
 @router.get("/waiting", response_model=List[DialogOut])
-async def get_waiting_dialogs():
-    sb = get_supabase()
+async def get_waiting_dialogs(
+    _: dict = Depends(get_current_psychologist),
+):
+    sb = get_database()
     result = (
         sb.table("dialogs")
         .select("*")

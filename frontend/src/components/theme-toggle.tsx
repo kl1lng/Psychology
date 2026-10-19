@@ -36,7 +36,7 @@ export function ThemeToggle({ className = '', showLabel = false }: ThemeTogglePr
     <button
       onClick={toggleTheme}
       type="button"
-      aria-label="Toggle theme"
+      aria-label="Переключить тему"
       title={isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
       className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-white hover:shadow-sm transition-all duration-200 dark:text-gray-400 dark:hover:bg-neutral-700 dark:hover:text-gray-100 ${className}`}
     >

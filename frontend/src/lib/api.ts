@@ -1,7 +1,7 @@
 import axios from 'axios';
 import Cookies from 'js-cookie';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -32,7 +32,7 @@ api.interceptors.response.use(
         headers: {},
         config: error.config,
         data: {
-          detail: 'Сервер бэкенда недоступен. Проверьте запуск Uvicorn на порту 8000',
+          detail: 'Сервер недоступен. Повторите попытку позже.',
         },
       };
     }
@@ -56,11 +56,11 @@ export const authApi = {
     class_id?: string;
     department_id?: string;
     department_code?: string;
-  }) => api.post('/api/v1/auth/register', data),
+  }) => api.post('/api/v1/auth/register', data, { timeout: 3000 }),
   login: (email: string, password: string) =>
     api.post('/api/v1/auth/login', { email, password }),
   guestLogin: () =>
-    api.post('/api/v1/auth/guest'),
+    api.post('/api/v1/auth/guest', undefined, { timeout: 3000 }),
   logout: () =>
     api.post('/api/v1/auth/logout'),
   me: () =>
@@ -89,14 +89,14 @@ export const assessmentsApi = {
 
 // ─── Mood ─────────────────────────────────────────────────────────────────────
 export const moodApi = {
-  saveEntry: (stressLevel: number, note?: string, studentId?: string) =>
+  saveEntry: (stressLevel: number, note?: string, emotion?: string) =>
     api.post('/api/v1/mood/entry', {
       stress_level: stressLevel,
       note,
-      student_id: studentId,
+      emotion,
     }),
-  getStats: (studentId?: string, days = 30) =>
-    api.get('/api/v1/mood/stats', { params: { student_id: studentId, days } }),
+  getStats: (days = 30) =>
+    api.get('/api/v1/mood/stats', { params: { days } }),
 };
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -128,18 +128,29 @@ export const appointmentsApi = {
     api.get('/api/v1/appointments/', { params: { status_filter: status } }),
 };
 
+export const intakesApi = {
+  students: () => api.get('/api/v1/intakes/students'),
+  list: () => api.get('/api/v1/intakes/'),
+  create: (data: { student_id: string; curator_name: string; paper_signed: boolean; note?: string }) => api.post('/api/v1/intakes/', data),
+  setPaperSignature: (id: string, paper_signed: boolean) => api.patch(`/api/v1/intakes/${id}/signature`, { paper_signed }),
+};
+
 
 
 // ─── Analytics ───────────────────────────────────────────────────────────────
 export const analyticsApi = {
   getResults: (params?: { class_id?: string; risk_level?: string; limit?: number; offset?: number }) =>
     api.get('/api/v1/analytics/results', { params }),
+  getMonthlyComparison: (class_id?: string) =>
+    api.get('/api/v1/analytics/monthly-comparison', { params: { class_id } }),
   getStudentResults: (studentId: string) =>
     api.get(`/api/v1/analytics/results/${studentId}`),
   getAssessmentDetail: (assessmentId: string) =>
     api.get(`/api/v1/analytics/assessment/${assessmentId}`),
   getClassComparison: () =>
     api.get('/api/v1/analytics/class-comparison'),
+  getActivity: (days = 30) =>
+    api.get('/api/v1/analytics/activity', { params: { days } }),
   getDashboard: () =>
     api.get('/api/v1/analytics/dashboard'),
   getStudentNotes: (studentId: string) =>

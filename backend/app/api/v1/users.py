@@ -1,8 +1,9 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
-from app.core.supabase import get_supabase
+from app.core.database import get_database
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -10,13 +11,20 @@ ANONYMOUS_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 @router.get("/{user_id}")
-async def get_user_profile(user_id: str):
+async def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
     """
     Get user profile by ID.
     If user_id is the anonymous user (00000000-0000-0000-0000-000000000000 or 'anonymous'),
     bypasses DB query and directly returns a 200 OK mock anonymous profile.
     """
-    if user_id == ANONYMOUS_USER_ID or user_id == "anonymous":
+    role = current_user.get("role")
+    is_staff = role in ("admin", "psychologist")
+    if user_id not in (current_user.get("sub"), ANONYMOUS_USER_ID, "anonymous") and not is_staff:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра профиля")
+
+    if user_id in (ANONYMOUS_USER_ID, "anonymous"):
+        if role not in ("guest", "admin", "psychologist"):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра профиля")
         return {
             "id": ANONYMOUS_USER_ID,
             "full_name": "Анонимді оқушы",
@@ -28,7 +36,7 @@ async def get_user_profile(user_id: str):
             "is_anonymous": True,
         }
 
-    sb = get_supabase()
+    sb = get_database()
     try:
         res = (
             sb.table("users")

@@ -14,6 +14,7 @@ export default function TestsPage() {
   const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     assessmentsApi.list()
       .then(r => setTests(r.data ?? []))
       .catch(() => setFetchError(true))

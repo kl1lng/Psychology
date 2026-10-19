@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ClipboardList,
@@ -26,13 +26,20 @@ import { authApi, moodApi } from '@/lib/api';
 import { User } from '@/types/user';
 import { useLanguage } from '@/context/language-context';
 
+interface MoodStatsData {
+  daily_trend: { date: string; avg_stress: number; entries_count: number }[];
+  overall_avg: number;
+}
+
 export default function StudentHome() {
   const { lang } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
   const [greeting, setGreeting] = useState('');
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [moodSaved, setMoodSaved] = useState(false);
+  const [moodError, setMoodError] = useState(false);
   const [isSavingMood, setIsSavingMood] = useState(false);
+  const [moodStats, setMoodStats] = useState<MoodStatsData | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
@@ -55,17 +62,24 @@ export default function StudentHome() {
     }
   }, [lang]);
 
+  useEffect(() => {
+    moodApi.getStats(30)
+      .then((response) => setMoodStats(response.data ?? null))
+      .catch(() => setMoodStats(null));
+  }, []);
+
   const handleQuickMood = async (level: number) => {
     setSelectedMood(level);
+    setMoodError(false);
     setIsSavingMood(true);
     try {
       await moodApi.saveEntry(level, 'Быстрая отметка с главной страницы');
       setMoodSaved(true);
+      moodApi.getStats(30).then((response) => setMoodStats(response.data ?? null)).catch(() => {});
       setTimeout(() => setMoodSaved(false), 4000);
     } catch {
-      // Keep optimistic UI
-      setMoodSaved(true);
-      setTimeout(() => setMoodSaved(false), 4000);
+      setSelectedMood(null);
+      setMoodError(true);
     } finally {
       setIsSavingMood(false);
     }
@@ -99,7 +113,7 @@ export default function StudentHome() {
     {
       href: '/chat',
       title: lang === 'kk' ? 'Анонимді чат' : 'Чат с психологом',
-      desc: lang === 'kk' ? 'Психологпен немесе AI-көмекшімен сырласу' : 'Конфиденциальная поддержка в любое время',
+      desc: lang === 'kk' ? 'Психологпен немесе ЖИ-көмекшімен сырласу' : 'Конфиденциальная поддержка в любое время',
       icon: MessageCircle,
       color: 'from-violet-500/20 to-purple-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30',
       badge: '24/7',
@@ -122,16 +136,66 @@ export default function StudentHome() {
     },
   ];
 
-  // Weekly mood sample bars
-  const weekDays = [
-    { day: lang === 'kk' ? 'Дс' : 'Пн', height: '60%', status: 'bg-emerald-400', label: '7/10' },
-    { day: lang === 'kk' ? 'Сс' : 'Вт', height: '80%', status: 'bg-emerald-500', label: '8/10' },
-    { day: lang === 'kk' ? 'Ср' : 'Ср', height: '45%', status: 'bg-amber-400', label: '5/10' },
-    { day: lang === 'kk' ? 'Бс' : 'Чт', height: '90%', status: 'bg-brand-500', label: '9/10' },
-    { day: lang === 'kk' ? 'Жм' : 'Пт', height: '75%', status: 'bg-emerald-500', label: '7.5/10' },
-    { day: lang === 'kk' ? 'Сб' : 'Сб', height: '85%', status: 'bg-brand-500', label: '8.5/10' },
-    { day: lang === 'kk' ? 'Жк' : 'Вс', height: '70%', status: 'bg-emerald-400', label: '7/10' },
-  ];
+  const weeklyStress = useMemo(() => {
+    const byDate = new Map<string, MoodStatsData['daily_trend'][number]>();
+    (moodStats?.daily_trend || []).forEach((item) => byDate.set(item.date, item));
+    const today = new Date();
+    const week = Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - 6 + index));
+      const date = day.toISOString().slice(0, 10);
+      const record = byDate.get(date);
+      const weekday = new Intl.DateTimeFormat(lang === 'kk' ? 'kk-KZ' : 'ru-RU', {
+        weekday: 'short',
+        timeZone: 'UTC',
+      }).format(day).replace(/\.$/, '');
+      const stress = record?.avg_stress ?? null;
+      return {
+        date,
+        day: weekday,
+        stress,
+        entries: record?.entries_count ?? 0,
+        color: stress === null ? 'bg-zinc-200 dark:bg-zinc-700' : stress <= 3 ? 'bg-emerald-500' : stress <= 6 ? 'bg-amber-400' : 'bg-rose-500',
+      };
+    });
+
+    const recordedDates = new Set((moodStats?.daily_trend || []).map((item) => item.date));
+    let cursor = new Date();
+    let cursorKey = cursor.toISOString().slice(0, 10);
+    if (!recordedDates.has(cursorKey)) {
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+      cursorKey = cursor.toISOString().slice(0, 10);
+    }
+    let streak = 0;
+    while (recordedDates.has(cursorKey) && streak < 30) {
+      streak += 1;
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+      cursorKey = cursor.toISOString().slice(0, 10);
+    }
+
+    return { week, streak };
+  }, [moodStats, lang]);
+
+  const stressSummary = moodStats?.daily_trend?.length
+    ? moodStats.overall_avg <= 3
+      ? (lang === 'kk' ? 'Стресс төмен' : 'Низкий стресс')
+      : moodStats.overall_avg <= 6
+      ? (lang === 'kk' ? 'Орташа стресс' : 'Умеренный стресс')
+      : (lang === 'kk' ? 'Стресс жоғары' : 'Повышенный стресс')
+    : (lang === 'kk' ? 'Әзірге дерек жоқ' : 'Пока нет записей');
+  const stressStatusColor = !moodStats?.daily_trend?.length
+    ? 'text-zinc-500 dark:text-zinc-400 bg-zinc-500/10'
+    : moodStats.overall_avg <= 3
+    ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
+    : moodStats.overall_avg <= 6
+    ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
+    : 'text-rose-600 dark:text-rose-400 bg-rose-500/10';
+
+  const weeklyAverage = weeklyStress.week
+    .filter((item) => item.stress !== null)
+    .map((item) => item.stress as number);
+  const weeklyMean = weeklyAverage.length
+    ? weeklyAverage.reduce((sum, value) => sum + value, 0) / weeklyAverage.length
+    : null;
 
   return (
     <div className="space-y-6">
@@ -167,7 +231,7 @@ export default function StudentHome() {
             )}
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/25 border border-emerald-400/30 backdrop-blur-md text-xs font-semibold text-emerald-100">
               <ShieldCheck size={14} className="text-emerald-300" />
-              <span>{lang === 'kk' ? '100% Анонимді & Қауіпсіз' : '100% Анонимно и безопасно'}</span>
+              <span>{lang === 'kk' ? 'Құпия психологиялық қолдау' : 'Конфиденциальная психологическая поддержка'}</span>
             </div>
           </div>
         </div>
@@ -207,10 +271,10 @@ export default function StudentHome() {
           </div>
           <div>
             <div className="text-2xl sm:text-3xl font-extrabold text-zinc-900 dark:text-zinc-100">
-              7 {lang === 'kk' ? 'күн' : 'дней'}
+              {weeklyStress.streak} {lang === 'kk' ? 'күн' : 'дн.'}
             </div>
             <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {lang === 'kk' ? 'Белсенділік қатары' : 'Дней подряд в приложении'}
+              {lang === 'kk' ? 'Күнделікті көңіл-күй белгісі' : 'Дней подряд с отметкой'}
             </div>
           </div>
         </div>
@@ -221,17 +285,17 @@ export default function StudentHome() {
             <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-600 dark:text-emerald-400">
               <ShieldCheck size={20} />
             </div>
-            <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {lang === 'kk' ? 'Тұрақты' : 'Норма'}
+            <span className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${stressStatusColor}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+              {stressSummary}
             </span>
           </div>
           <div>
             <div className="text-xl sm:text-2xl font-extrabold text-zinc-900 dark:text-zinc-100 truncate">
-              {lang === 'kk' ? 'Сабырлы' : 'Спокойное'}
+              {moodStats?.daily_trend?.length ? `${moodStats.overall_avg.toFixed(1)} / 10` : '—'}
             </div>
             <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {lang === 'kk' ? 'Эмоциялық күй' : 'Эмоциональный статус'}
+              {lang === 'kk' ? '30 күндегі орташа стресс' : 'Средний стресс за 30 дней'}
             </div>
           </div>
         </div>
@@ -283,10 +347,10 @@ export default function StudentHome() {
             <div className="grid grid-cols-4 gap-2">
               <button
                 type="button"
-                onClick={() => handleQuickMood(10)}
+                onClick={() => handleQuickMood(1)}
                 disabled={isSavingMood}
                 className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${
-                  selectedMood === 10
+                  selectedMood === 1
                     ? 'bg-emerald-500/15 border-emerald-500 text-emerald-600 scale-105 shadow-sm'
                     : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-emerald-500/50 text-zinc-700 dark:text-zinc-300'
                 }`}
@@ -297,10 +361,10 @@ export default function StudentHome() {
 
               <button
                 type="button"
-                onClick={() => handleQuickMood(7)}
+                onClick={() => handleQuickMood(3)}
                 disabled={isSavingMood}
                 className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${
-                  selectedMood === 7
+                  selectedMood === 3
                     ? 'bg-blue-500/15 border-blue-500 text-blue-600 scale-105 shadow-sm'
                     : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-blue-500/50 text-zinc-700 dark:text-zinc-300'
                 }`}
@@ -325,10 +389,10 @@ export default function StudentHome() {
 
               <button
                 type="button"
-                onClick={() => handleQuickMood(2)}
+                onClick={() => handleQuickMood(9)}
                 disabled={isSavingMood}
                 className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${
-                  selectedMood === 2
+                  selectedMood === 9
                     ? 'bg-rose-500/15 border-rose-500 text-rose-600 scale-105 shadow-sm'
                     : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-rose-500/50 text-zinc-700 dark:text-zinc-300'
                 }`}
@@ -342,6 +406,12 @@ export default function StudentHome() {
               <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold animate-fade-in">
                 <CheckCircle2 size={16} />
                 <span>{lang === 'kk' ? 'Көңіл-күйің сақталды! Жарайсың!' : 'Настроение сохранено! Отличный день!'}</span>
+              </div>
+            )}
+            {moodError && (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold">
+                <AlertCircle size={16} />
+                <span>{lang === 'kk' ? 'Сақтау мүмкін болмады. Қайта көріңіз.' : 'Не удалось сохранить отметку. Попробуйте ещё раз.'}</span>
               </div>
             )}
 
@@ -431,27 +501,30 @@ export default function StudentHome() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-base text-zinc-900 dark:text-zinc-100">
-                  {lang === 'kk' ? 'Апталық көңіл-күй динамикасы' : 'Динамика настроения за неделю'}
+                  {lang === 'kk' ? 'Апталық стресс деңгейі' : 'Уровень стресса за неделю'}
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  {lang === 'kk' ? 'Күнделікті эмоционалдық тепе-теңдік' : 'График стабильности твоего состояния'}
+                  {lang === 'kk' ? 'Күнделікті белгілеулердің орташа мәні' : 'Среднее по ежедневным отметкам'}
                 </p>
               </div>
               <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
-                {lang === 'kk' ? 'Орташа: 7.3 / 10' : 'Средний: 7.3 / 10'}
+                {weeklyMean === null
+                  ? (lang === 'kk' ? 'Әзірге дерек жоқ' : 'Пока нет данных')
+                  : `${lang === 'kk' ? 'Орташа стресс' : 'Средний стресс'}: ${weeklyMean.toFixed(1)} / 10`}
               </span>
             </div>
 
             {/* Visual Bar Chart */}
             <div className="h-36 pt-4 flex items-end justify-between gap-2 sm:gap-4 px-2 border-b border-zinc-100 dark:border-zinc-800 pb-2">
-              {weekDays.map((item, idx) => (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
+              {weeklyStress.week.map((item) => (
+                <div key={item.date} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
                   <span className="text-[10px] font-bold text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {item.label}
+                    {item.stress === null ? '—' : `${item.stress.toFixed(1)}/10`}
                   </span>
                   <div
-                    className={`w-full max-w-[36px] rounded-xl ${item.status} transition-all duration-500 group-hover:brightness-110 shadow-sm`}
-                    style={{ height: item.height }}
+                    title={item.stress === null ? (lang === 'kk' ? 'Белгі жоқ' : 'Нет отметки') : `${item.stress.toFixed(1)} / 10`}
+                    className={`w-full max-w-[36px] rounded-xl ${item.color} transition-all duration-500 group-hover:brightness-110 shadow-sm`}
+                    style={{ height: `${item.stress === null ? 5 : Math.max(8, item.stress * 10)}%` }}
                   />
                   <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
                     {item.day}
@@ -464,15 +537,15 @@ export default function StudentHome() {
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  {lang === 'kk' ? 'Жақсы' : 'Хорошо'}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-brand-500" />
-                  {lang === 'kk' ? 'Тамаша' : 'Отлично'}
+                  {lang === 'kk' ? 'Төмен' : 'Низкий'}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                  {lang === 'kk' ? 'Шаршау' : 'Усталость'}
+                  {lang === 'kk' ? 'Орташа' : 'Умеренный'}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                  {lang === 'kk' ? 'Жоғары' : 'Высокий'}
                 </span>
               </div>
 

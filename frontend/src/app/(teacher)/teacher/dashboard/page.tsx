@@ -30,7 +30,6 @@ import { useDebounce } from '@/hooks/use-debounce';
 import { KpiCardSkeleton, TableRowSkeleton } from '@/components/ui/skeleton';
 import { AcademicClassReport, AcademicStudentRow } from '@/components/pdf/AcademicClassReport';
 import { AcademicStudentReport } from '@/components/pdf/AcademicStudentReport';
-import { exportComponentToPdf } from '@/lib/pdf-generator';
 
 interface AcademicTestOption {
   id: string;
@@ -193,9 +192,10 @@ export default function TeacherDashboardPage() {
     if (!classReportRef.current) return;
     try {
       setIsExportingPdf(true);
+      const { exportComponentToPdf } = await import('@/lib/pdf-generator');
       await exportComponentToPdf(
         classReportRef.current,
-        `Vedomost_${currentTest.subject}_${selectedClass}_2026.pdf`
+        `Ведомость_${currentTest.subject}_${selectedClass}_2026.pdf`
       );
     } catch (err) {
       console.error('PDF export failed:', err);
@@ -211,9 +211,10 @@ export default function TeacherDashboardPage() {
       if (studentReportRef.current) {
         try {
           setIsExportingPdf(true);
+          const { exportComponentToPdf } = await import('@/lib/pdf-generator');
           await exportComponentToPdf(
             studentReportRef.current,
-            `Academic_Card_${student.student_name.replace(/\s+/g, '_')}.pdf`
+            `Карточка_ученика_${student.student_name.replace(/\s+/g, '_')}.pdf`
           );
         } catch (err) {
           console.error('Student PDF export failed:', err);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/navigation-link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ShieldAlert,
@@ -82,7 +82,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="flex items-center gap-2">
           <LogoIcon className="w-6 h-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span className="font-bold text-lg text-[#3525cd] dark:text-indigo-400 font-['Plus_Jakarta_Sans',sans-serif]">
-            AISezim Admin
+            AISezim · Администратор
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -93,7 +93,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 lang === 'ru' ? 'bg-white dark:bg-zinc-700 text-[#3525cd] shadow-xs' : 'text-slate-500'
               }`}
             >
-              RU
+              РУС
             </button>
             <button
               onClick={() => setLang('kk')}
@@ -101,7 +101,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 lang === 'kk' ? 'bg-white dark:bg-zinc-700 text-[#3525cd] shadow-xs' : 'text-slate-500'
               }`}
             >
-              KZ
+              ҚАЗ
             </button>
           </div>
           <ThemeToggle className="w-8 h-8" />
@@ -261,7 +261,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               className="text-xs font-semibold text-rose-600 flex items-center gap-2 px-3 py-2"
             >
               <LogOut className="w-4 h-4" />
-              <span>Log Out</span>
+              <span>Выйти</span>
             </button>
           </div>
         )}

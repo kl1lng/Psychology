@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 
 
@@ -7,6 +7,7 @@ class MoodEntry(BaseModel):
     stress_level: int = Field(..., ge=1, le=10, description="Stress level from 1 (very low) to 10 (very high)")
     student_id: Optional[str] = None
     note: Optional[str] = Field(None, max_length=500)
+    emotion: Optional[Literal["joy", "calm", "sadness", "anger", "anxiety", "tired"]] = None
 
 
 class MoodEntryOut(BaseModel):
@@ -14,6 +15,7 @@ class MoodEntryOut(BaseModel):
     student_id: str
     stress_level: int
     note: Optional[str]
+    emotion: Optional[str] = None
     created_at: datetime
 
 
@@ -30,6 +32,11 @@ class WeekdayStats(BaseModel):
     entries_count: int
 
 
+class EmotionCount(BaseModel):
+    emotion: str
+    entries_count: int
+
+
 class MoodStats(BaseModel):
     daily_trend: List[DailyStress]
     weekday_stats: List[WeekdayStats]
@@ -37,3 +44,4 @@ class MoodStats(BaseModel):
     easiest_day_avg: float
     overall_avg: float
     total_entries: int
+    emotion_counts: List[EmotionCount] = Field(default_factory=list)

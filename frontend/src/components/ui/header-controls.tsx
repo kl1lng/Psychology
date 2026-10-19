@@ -21,7 +21,7 @@ export function HeaderControls({ className = '' }: HeaderControlsProps) {
         title={lang === 'ru' ? 'Тілді қазақшаға ауыстыру' : 'Переключить на русский язык'}
         className="flex items-center justify-center h-8 px-3 rounded-full text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-white hover:shadow-sm transition-all duration-200 dark:text-gray-400 dark:hover:bg-neutral-700 dark:hover:text-gray-100 select-none"
       >
-        {lang === 'ru' ? 'RU' : 'QAZ'}
+        {lang === 'ru' ? 'РУС' : 'ҚАЗ'}
       </button>
     </div>
   );

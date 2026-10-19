@@ -41,8 +41,9 @@ flowchart TB
     end
 
     subgraph PersistenceLayer [" 🗄️ Persistence & Storage Layer "]
-        Supabase_PG[("PostgreSQL Database (Supabase)")]
-        Storage_Bucket[("Supabase S3 Audio Storage")]
+        PostgreSQL[("Self-hosted PostgreSQL")]
+        PostgREST["Private PostgREST API"]
+        Storage_Bucket[("Local audio volume")]
     end
 
     ClientLayer -->|HTTPS / Axios + JWT Cookie| APILayer
@@ -56,15 +57,16 @@ flowchart TB
     Router_Analytics --> Early_Warning
     Router_Dept & Router_Auth & Router_Admin --> Dept_Store
 
-    ServiceLayer --> PersistenceLayer
-    Dept_Store -.->|Fallback / RLS Sync| Supabase_PG
+    APILayer --> PostgREST --> PostgreSQL
+    Router_Dept -.->|In-memory fallback| Dept_Store
+    APILayer --> Storage_Bucket
 ```
 
 ---
 
 ## 2. Модель данных и ER-диаграмма (Database Schema)
 
-База данных построена на **PostgreSQL** с использованием **Row Level Security (RLS)** для изоляции приватных записей учащихся и разграничения прав доступа.
+Локальный Compose-стек использует PostgreSQL и приватный PostgREST в закрытой Docker-сети. Браузер обращается только к Next.js и FastAPI; аудиофайлы лежат в постоянном локальном томе. Базовая схема чистой установки находится в `backend/migrations/standalone_init.sql`.
 
 ```mermaid
 erDiagram
@@ -151,7 +153,7 @@ sequenceDiagram
     participant UI as Next.js (/register)
     participant AuthAPI as FastAPI (/api/v1/auth/register)
     participant Store as DepartmentStore
-    participant DB as PostgreSQL (Supabase)
+    participant DB as Self-hosted PostgreSQL via private PostgREST
 
     Teacher->>UI: Ввод ФИО, Email, Пароль, Код кафедры (MIPH2026)
     UI->>AuthAPI: POST /api/v1/auth/register (payload)
@@ -178,7 +180,7 @@ sequenceDiagram
     participant UI as Next.js (/student/tests/[id])
     participant AssessAPI as FastAPI (/api/v1/assessments/submit)
     participant Scoring as ScoringEngine
-    participant DB as PostgreSQL (Supabase)
+    participant DB as Self-hosted PostgreSQL via private PostgREST
 
     Student->>UI: Выбор вариантов ответа (Radio Cards)
     Student->>UI: Клик "Завершить тест"
@@ -199,12 +201,12 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     participant Engine as Scoring / Mood Engine
-    participant DB as Supabase (Realtime Channel)
+    participant DB as Self-hosted PostgreSQL
     participant PsychUI as Кабинет Психолога (/psychologist/dashboard)
     actor Psych as 🧠 Педагог-психолог
 
     Engine->>DB: INSERT assessment_result (risk = CRITICAL)
-    DB-->>PsychUI: Realtime WebSocket Event (postgres_changes)
+    PsychUI->>DB: Периодическая проверка API /analytics/activity
     PsychUI->>PsychUI: playEmergencyAlertSound() (Звуковая сирена)
     PsychUI->>PsychUI: Показ баннера экстренного внимания
     PsychUI-->>Psych: Уведомление с кнопкой "Перейти в чат"

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Depends
 
-from app.core.supabase import get_supabase
+from app.core.database import get_database
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/leaderboard", tags=["Leaderboard"])
@@ -9,7 +9,7 @@ router = APIRouter(prefix="/leaderboard", tags=["Leaderboard"])
 @router.get("/")
 async def get_leaderboard(limit: int = Query(50, ge=1, le=100), _auth: dict = Depends(get_current_user)):
     """Top students by points_balance."""
-    sb = get_supabase()
+    sb = get_database()
 
     result = (
         sb.table("users")

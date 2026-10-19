@@ -1,3 +1,7 @@
+# Исторический отчёт
+
+Этот документ фиксирует состояние прежней облачной конфигурации до перехода на локальные PostgreSQL/PostgREST. Упоминания Supabase, старых RLS-политик и результатов проверки не описывают текущий self-hosted Compose-стек; его конфигурация находится в `docker-compose.yml` и `backend/migrations/standalone_init.sql`.
+
 # 🛡️ AISezim — Enterprise Security & Performance Audit Report
 
 <div align="center">

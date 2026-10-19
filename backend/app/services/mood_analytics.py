@@ -9,7 +9,7 @@ from typing import List, Dict, Any
 from collections import defaultdict
 from datetime import datetime, date
 
-from app.schemas.mood import DailyStress, WeekdayStats, MoodStats
+from app.schemas.mood import DailyStress, WeekdayStats, MoodStats, EmotionCount
 
 WEEKDAY_NAMES = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 
@@ -32,15 +32,20 @@ def compute_mood_stats(entries: List[Dict[str, Any]]) -> MoodStats:
             easiest_day_avg=0.0,
             overall_avg=0.0,
             total_entries=0,
+            emotion_counts=[],
         )
 
     # ── Daily grouping ────────────────────────────────────────────────────────
     daily: Dict[str, List[int]] = defaultdict(list)
     weekday: Dict[int, List[int]] = defaultdict(list)
+    emotions: Dict[str, int] = defaultdict(int)
 
     for entry in entries:
         created_at = entry.get("created_at", "")
         stress = int(entry.get("stress_level", 5))
+        emotion = entry.get("emotion")
+        if emotion:
+            emotions[str(emotion)] += 1
 
         try:
             dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
@@ -101,4 +106,5 @@ def compute_mood_stats(entries: List[Dict[str, Any]]) -> MoodStats:
         easiest_day_avg=easiest_day_avg,
         overall_avg=overall_avg,
         total_entries=len(entries),
+        emotion_counts=[EmotionCount(emotion=key, entries_count=count) for key, count in sorted(emotions.items(), key=lambda pair: (-pair[1], pair[0]))],
     )

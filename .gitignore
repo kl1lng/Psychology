@@ -28,8 +28,11 @@ build/
 frontend/recordings/
 backend/app/static/*
 !backend/app/static/.gitkeep
+data/
+ops/.env
 playwright-report/
 test-results/
+output/pdf/
 
 # OS files
 .DS_Store

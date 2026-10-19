@@ -14,11 +14,13 @@ export interface UniversalReportScale {
 export interface UniversalReportAnswer {
   number: number | string;
   questionText: string;
+  scaleName?: string;
   studentAnswer: string;
   points?: string | number; // Optional awarded points (+1, 0, etc.)
 }
 
 export interface UniversalReportData {
+  isDemo?: boolean;
   student: {
     fullName: string;
     className: string;

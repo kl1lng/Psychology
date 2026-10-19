@@ -1,11 +1,5 @@
-import { StitchLoader } from '@/components/ui/stitch-loader';
+import RouteLoading from '@/components/ui/route-loading';
 
-export default function StudentLoading() {
-  return (
-    <StitchLoader
-      type="student"
-      title="Платформа AISezim"
-      subtitle="Загрузка психологических тестов, чатов и практик..."
-    />
-  );
+export default function Loading() {
+  return <RouteLoading />;
 }

@@ -18,6 +18,7 @@ export interface ClassSummaryReportProps {
   students: ClassSummaryStudentRow[];
   generatedAt?: string;
   teacherDepartmentName?: string;
+  isDemo?: boolean;
 }
 
 export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
@@ -26,6 +27,7 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
   students,
   generatedAt,
   teacherDepartmentName,
+  isDemo = false,
 }) => {
   const formattedDate = generatedAt
     ? new Date(generatedAt).toLocaleDateString('ru-RU', {
@@ -39,6 +41,7 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
 
   // Stats calculation
   const total = students.length;
+  const riskApplies = !/Климов|ДДО/.test(testTitle);
   const completed = students.filter((s) => s.is_completed).length;
   const lowRisk = students.filter((s) => s.is_completed && s.risk_level === 'LOW').length;
   const mediumRisk = students.filter((s) => s.is_completed && s.risk_level === 'MEDIUM').length;
@@ -58,6 +61,7 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
       }}
     >
       {/* ── Header ───────────────────────────────────────────────── */}
+      {isDemo && <p style={{ margin: '0 0 12px', fontSize: '11px', fontWeight: 700 }}>ДЕМОНСТРАЦИОННЫЙ ОТЧЁТ · Все данные вымышлены</p>}
       <div
         style={{
           display: 'flex',
@@ -92,7 +96,7 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
           gap: '10px',
-          backgroundColor: '#f8fafc',
+          backgroundColor: '#ffffff',
           border: '1px solid #cbd5e1',
           borderRadius: '12px',
           padding: '14px',
@@ -102,7 +106,7 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
       >
         <div>
           <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Всего в классе
+            Учеников в выборке
           </div>
           <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
             {total}
@@ -113,35 +117,35 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
           <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
             Сдали опрос
           </div>
-          <div style={{ fontSize: '16px', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>
+          <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
             {completed} ({total > 0 ? Math.round((completed / total) * 100) : 0}%)
           </div>
         </div>
 
         <div>
           <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Норма (LOW)
+            Норма
           </div>
-          <div style={{ fontSize: '16px', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>
-            {lowRisk}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Умеренный (MED)
-          </div>
-          <div style={{ fontSize: '16px', fontWeight: 800, color: '#b45309', marginTop: '2px' }}>
-            {mediumRisk}
+          <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+            {riskApplies ? lowRisk : '—'}
           </div>
         </div>
 
         <div>
           <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Зона риска (HIGH)
+            Умеренный риск
           </div>
-          <div style={{ fontSize: '16px', fontWeight: 800, color: '#b91c1c', marginTop: '2px' }}>
-            {highCriticalRisk}
+          <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+            {riskApplies ? mediumRisk : '—'}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+            Высокий / критический риск
+          </div>
+          <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+            {riskApplies ? highCriticalRisk : '—'}
           </div>
         </div>
       </div>
@@ -154,80 +158,65 @@ export const ClassSummaryReport: React.FC<ClassSummaryReportProps> = ({
             borderCollapse: 'collapse',
             fontSize: '11px',
             border: '1px solid #cbd5e1',
+            tableLayout: 'fixed',
           }}
         >
+          <colgroup>
+            <col style={{ width: '6%' }} />
+            <col style={{ width: '32%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '18%' }} />
+          </colgroup>
           <thead>
-            <tr style={{ backgroundColor: '#f1f5f9', color: '#334155', textAlign: 'left', fontWeight: 700 }}>
+            <tr style={{ backgroundColor: '#ffffff', color: '#172033', textAlign: 'left', fontWeight: 700 }}>
               <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '32px', textAlign: 'center' }}>№</th>
               <th style={{ padding: '8px 12px', border: '1px solid #cbd5e1' }}>ФИО ученика</th>
               <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '60px', textAlign: 'center' }}>Класс</th>
               <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '80px', textAlign: 'center' }}>Статус</th>
-              <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '80px', textAlign: 'center' }}>Балл</th>
               <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '130px', textAlign: 'center' }}>Уровень риска</th>
               <th style={{ padding: '8px 10px', border: '1px solid #cbd5e1', width: '90px', textAlign: 'center' }}>Дата сдачи</th>
             </tr>
           </thead>
           <tbody>
             {students.map((st, idx) => {
-              let riskColor = '#15803d';
-              let riskBg = '#dcfce7';
               let riskText = 'Норма';
 
               if (st.risk_level === 'MEDIUM') {
-                riskColor = '#b45309';
-                riskBg = '#fef3c7';
                 riskText = 'Умеренный';
               } else if (st.risk_level === 'HIGH') {
-                riskColor = '#c2410c';
-                riskBg = '#ffedd5';
                 riskText = 'Высокий';
               } else if (st.risk_level === 'CRITICAL') {
-                riskColor = '#b91c1c';
-                riskBg = '#fee2e2';
                 riskText = 'Критический';
               }
 
               return (
-                <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                  <td style={{ padding: '7px 8px', border: '1px solid #cbd5e1', textAlign: 'center', color: '#64748b' }}>
+                <tr key={idx} style={{ backgroundColor: '#ffffff', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '9px 6px', border: '1px solid #cbd5e1', textAlign: 'center', color: '#64748b', verticalAlign: 'middle' }}>
                     {idx + 1}
                   </td>
-                  <td style={{ padding: '7px 12px', border: '1px solid #cbd5e1', fontWeight: 600, color: '#0f172a' }}>
+                  <td style={{ padding: '9px 10px', border: '1px solid #cbd5e1', fontWeight: 600, color: '#0f172a', verticalAlign: 'middle', overflowWrap: 'anywhere' }}>
                     {st.student_name}
                   </td>
-                  <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+                  <td style={{ padding: '9px 6px', border: '1px solid #cbd5e1', textAlign: 'center', verticalAlign: 'middle' }}>
                     {st.class_id}
                   </td>
-                  <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+                  <td style={{ padding: '9px 6px', border: '1px solid #cbd5e1', textAlign: 'center', verticalAlign: 'middle' }}>
                     {st.is_completed ? (
-                      <span style={{ color: '#15803d', fontWeight: 700 }}>Сдал</span>
+                      <span style={{ color: '#0f172a', fontWeight: 700 }}>Сдал</span>
                     ) : (
                       <span style={{ color: '#94a3b8' }}>Не сдал</span>
                     )}
                   </td>
-                  <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700 }}>
-                    {st.is_completed ? `${st.total_score} б.` : '—'}
-                  </td>
-                  <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+                  <td style={{ padding: '9px 6px', border: '1px solid #cbd5e1', textAlign: 'center', verticalAlign: 'middle' }}>
                     {st.is_completed ? (
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          color: riskColor,
-                          backgroundColor: riskBg,
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                        }}
-                      >
-                        {riskText}
-                      </span>
+                      <span style={{ color: '#0f172a', fontWeight: 600 }}>{riskApplies ? riskText : 'Не оценивается'}</span>
                     ) : (
                       <span style={{ color: '#94a3b8' }}>—</span>
                     )}
                   </td>
-                  <td style={{ padding: '7px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '10px', color: '#64748b' }}>
+                  <td style={{ padding: '9px 6px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '10px', color: '#64748b', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                     {st.completed_at
                       ? new Date(st.completed_at).toLocaleDateString('ru-RU')
                       : '—'}

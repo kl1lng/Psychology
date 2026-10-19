@@ -21,58 +21,8 @@ import { TestInfo, AnswerItem, AssessmentResult } from '@/types/test';
 import { getRiskBg, getRiskColor, getRiskLabel } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
 import { useConfettiSound } from '@/components/confetti-sound';
-
-// Fallback question sets for resilient testing
-const FALLBACK_TESTS: Record<string, TestInfo> = {
-  phillips_school: {
-    id: 'phillips_school',
-    title: 'Тест школьной тревожности Филлипса',
-    description: 'Диагностика уровня и характера тревожности, связанной со школой.',
-    estimated_minutes: 15,
-    question_count: 8,
-    questions: [
-      { id: 1, text: 'Трудно ли тебе держаться на одном уровне со всем классом?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 2, text: 'Волнуешься ли ты, когда учитель собирается проверить твои знания?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 3, text: 'Трудно ли тебе работать в классе так, как этого требует учитель?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 4, text: 'Снится ли тебе временами, что ты не знаешь урока и получаешь плохую оценку?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 5, text: 'Случалось ли, что одноклассники подсмеивались над твоим ответом?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 6, text: 'Часто ли тебе хочется, чтобы учитель не торопился при объяснении?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 7, text: 'Сильно ли ты волнуешься при ответе у доски?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 8, text: 'Случается ли с тобой, что ты боишься высказать свое мнение на уроке?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-    ],
-  },
-  eysenck_epi_a: {
-    id: 'eysenck_epi_a',
-    title: 'Опросник Айзенка (EPI-A)',
-    description: 'Исследование индивидуально-психологических свойств личности: экстраверсии и нейротизма.',
-    estimated_minutes: 15,
-    question_count: 8,
-    questions: [
-      { id: 1, text: 'Любишь ли ты шум и оживление вокруг себя?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 2, text: 'Часто ли ты нуждаешься в друзьях, которые могут тебя поддержать?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 3, text: 'Быстро ли ты находишь ответ, когда тебя о чем-то спрашивают?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 4, text: 'Бываешь ли ты сердитым, раздражительным?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 5, text: 'Часто ли у тебя меняется настроение?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 6, text: 'Тебе больше нравится быть одному, чем в шумной компании?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 7, text: 'Бывает ли так, что тебе мешают уснуть разные мысли?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-      { id: 8, text: 'Всегда ли ты делаешь так, как тебе говорят взрослые?', options: [{ value: 1, label: 'Да' }, { value: 0, label: 'Нет' }] },
-    ],
-  },
-  luskanova_motivation: {
-    id: 'luskanova_motivation',
-    title: 'Оценка школьной мотивации Лускановой',
-    description: 'Определение уровня учебной мотивации и эмоционального отношения к школе.',
-    estimated_minutes: 8,
-    question_count: 5,
-    questions: [
-      { id: 1, text: 'Тебе нравится в школе?', options: [{ value: 3, label: 'Очень нравится' }, { value: 1, label: 'Не очень' }, { value: 0, label: 'Совсем не нравится' }] },
-      { id: 2, text: 'Утром, когда ты просыпаешься, ты с радостью идешь в школу?', options: [{ value: 3, label: 'Почти всегда' }, { value: 1, label: 'Бывает по-разному' }, { value: 0, label: 'Редко / Неохотно' }] },
-      { id: 3, text: 'Если бы можно было не ходить в школу один день в неделю, ты бы остался дома?', options: [{ value: 0, label: 'Да, с удовольствием' }, { value: 1, label: 'Не знаю' }, { value: 3, label: 'Нет, пошел бы в школу' }] },
-      { id: 4, text: 'Тебе нравится, когда у вас отменяют какие-нибудь уроки?', options: [{ value: 0, label: 'Очень нравится' }, { value: 1, label: 'Иногда' }, { value: 3, label: 'Нет, лучше провести урок' }] },
-      { id: 5, text: 'Ты хотел бы, чтобы задавали меньше домашних заданий?', options: [{ value: 0, label: 'Да, хотел бы' }, { value: 1, label: 'Мне все равно' }, { value: 3, label: 'Нет, домашние задания полезны' }] },
-    ],
-  },
-};
+import { prepareAudioPlayback } from '@/lib/sound-alerts';
+import { useAuth } from '@/context/auth-context';
 
 export default function StudentTestTakingPage() {
   const { id } = useParams<{ id: string }>();
@@ -85,6 +35,7 @@ export default function StudentTestTakingPage() {
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<AssessmentResult | null>(null);
 
   useEffect(() => {
@@ -95,18 +46,21 @@ export default function StudentTestTakingPage() {
         if (r.data && r.data.questions && r.data.questions.length > 0) {
           setTest(r.data);
         } else {
-          setTest(FALLBACK_TESTS[id] || FALLBACK_TESTS['phillips_school']);
+          setTest(null);
         }
       })
       .catch((err) => {
         console.warn('Using fallback test data for offline resilience:', err);
-        setTest(FALLBACK_TESTS[id] || FALLBACK_TESTS['phillips_school']);
+        setTest(null);
       })
       .finally(() => setLoading(false));
   }, [id, lang]);
 
   async function handleSubmit() {
     if (!test || !test.questions) return;
+    if (test.questions.some((question) => answers[question.id] === undefined)) { setSubmitError('Ответьте на все вопросы перед отправкой.'); return; }
+    setSubmitError(null);
+    prepareAudioPlayback();
 
     const answerList: AnswerItem[] = test.questions.map((q) => ({
       question_id: q.id,
@@ -119,29 +73,7 @@ export default function StudentTestTakingPage() {
       setResult(res.data);
       triggerConfetti();
     } catch (e) {
-      console.warn('Submit API fallback computation:', e);
-      // Fallback local scoring result
-      const totalScore = Object.values(answers).reduce((a, b) => a + b, 0);
-      setResult({
-        id: `res-${Date.now()}`,
-        student_id: 'current-student',
-        test_id: id,
-        test_name: test.title,
-        overall_risk: totalScore > 5 ? 'MEDIUM' : 'LOW',
-        reward_points: 80,
-        message: 'Спасибо за искренние ответы! Результаты успешно сохранены в системе.',
-        created_at: new Date().toISOString(),
-        scales: [
-          {
-            scale_name: 'Общий показатель методики',
-            raw_score: totalScore,
-            max_score: test.questions.length * 3,
-            percentage: Math.round((totalScore / (test.questions.length * 3 || 1)) * 100),
-            interpretation: 'Показатели находятся в границах возрастной нормы.',
-          },
-        ],
-      });
-      triggerConfetti();
+      setSubmitError('Не удалось сохранить результат. Ответы сохранены на экране: повторите отправку.');
     } finally {
       setSubmitting(false);
     }
@@ -291,6 +223,7 @@ export default function StudentTestTakingPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12 animate-fade-in">
+      {submitError && <p role="alert" className="rounded-xl border border-red-300 p-3 text-red-700">{submitError}</p>}
       {/* ── 1. Top Bar (Header & Exit Button) ──────────────────────── */}
       <div className="flex items-center justify-between gap-4">
         <button
@@ -351,7 +284,8 @@ export default function StudentTestTakingPage() {
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.value }))}
+                onClick={() =>
+       setAnswers((prev) => ({ ...prev, [q.id]: opt.value }))}
                 className={`w-full p-4 sm:p-4.5 rounded-2xl text-left transition-all duration-200 flex items-center justify-between gap-4 cursor-pointer ${
                   isSelected
                     ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-2 border-indigo-600 dark:border-indigo-500 text-indigo-950 dark:text-indigo-100 shadow-xs'

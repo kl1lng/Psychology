@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from app.core.supabase import get_supabase
+from app.core.database import get_database
 
 # Default initial departments for AISezim school system
 DEFAULT_DEPARTMENTS: List[Dict[str, Any]] = [
@@ -39,30 +39,25 @@ DEFAULT_DEPARTMENTS: List[Dict[str, Any]] = [
 
 class DepartmentStore:
     """
-    Resilient department storage:
-    Attempts Supabase operations first. If the remote database table 'departments'
-    does not exist or returns PGRST205, seamlessly falls back to memory storage.
+    Department storage backed by the local PostgreSQL API with an in-process fallback.
     """
     _memory_departments: List[Dict[str, Any]] = [dict(d) for d in DEFAULT_DEPARTMENTS]
 
     @classmethod
     def list_all(cls) -> List[Dict[str, Any]]:
-        sb = get_supabase()
         try:
+            sb = get_database()
             res = sb.table("departments").select("*").order("name").execute()
-            if res.data is not None and len(res.data) > 0:
-                return res.data
+            return res.data or []
         except Exception:
-            pass
-        return list(cls._memory_departments)
+            return [dict(d) for d in cls._memory_departments]
 
     @classmethod
     def get_by_id(cls, dept_id: str) -> Optional[Dict[str, Any]]:
-        sb = get_supabase()
         try:
+            sb = get_database()
             res = sb.table("departments").select("*").eq("id", dept_id).execute()
-            if res.data:
-                return res.data[0]
+            return res.data[0] if res.data else None
         except Exception:
             pass
         for d in cls._memory_departments:
@@ -73,11 +68,10 @@ class DepartmentStore:
     @classmethod
     def get_by_code(cls, code: str) -> Optional[Dict[str, Any]]:
         clean = code.strip().upper()
-        sb = get_supabase()
         try:
+            sb = get_database()
             res = sb.table("departments").select("*").eq("code", clean).execute()
-            if res.data:
-                return res.data[0]
+            return res.data[0] if res.data else None
         except Exception:
             pass
         for d in cls._memory_departments:
@@ -100,8 +94,8 @@ class DepartmentStore:
             "created_at": datetime.utcnow().isoformat(),
         }
 
-        sb = get_supabase()
         try:
+            sb = get_database()
             res = sb.table("departments").insert(new_dept).execute()
             if res.data:
                 return res.data[0]
@@ -126,8 +120,8 @@ class DepartmentStore:
         if not update_data:
             return cls.get_by_id(dept_id)
 
-        sb = get_supabase()
         try:
+            sb = get_database()
             res = sb.table("departments").update(update_data).eq("id", dept_id).execute()
             if res.data:
                 return res.data[0]
@@ -142,12 +136,14 @@ class DepartmentStore:
 
     @classmethod
     def delete(cls, dept_id: str) -> bool:
-        sb = get_supabase()
+        deleted_in_database = False
         try:
-            sb.table("departments").delete().eq("id", dept_id).execute()
+            sb = get_database()
+            res = sb.table("departments").delete().eq("id", dept_id).execute()
+            deleted_in_database = bool(res.data)
         except Exception:
             pass
 
         initial_len = len(cls._memory_departments)
         cls._memory_departments = [d for d in cls._memory_departments if d["id"] != dept_id]
-        return len(cls._memory_departments) < initial_len or True
+        return deleted_in_database or len(cls._memory_departments) < initial_len

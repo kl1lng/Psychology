@@ -1,11 +1,23 @@
 # 🌟 AISezim Platform — Comprehensive Educational & Psychological School Management Ecosystem
 
+## Запуск в один клик (Windows)
+
+1. Установите Docker Desktop и дождитесь, пока он запустится.
+2. Дважды щёлкните `Start-AISezim.cmd` в корне проекта.
+3. Откройте `http://localhost:3000` после сообщения о запуске.
+
+При первом запуске рядом с проектом автоматически создаётся закрытый Git-ом `.env` со случайными секретами. Первый запуск скачает и соберёт Docker-образы и займёт несколько минут. Для повторного запуска достаточно снова открыть `Start-AISezim.cmd`; данные базы и аудио сохраняются в Docker volumes.
+
+Чтобы остановить сервисы без удаления данных, выполните `docker compose -f docker-compose.yml -f docker-compose.desktop.yml down` в папке проекта. Не добавляйте `-v`, если нужно сохранить данные.
+
+Для VPS после настройки публичного `DOMAIN`, DNS и `.env` используйте `bash ops/start-vps.sh`; подробности описаны в `docs/VPS_DEPLOYMENT.md`.
+
 <div align="center">
 
 ![AISezim Banner](https://img.shields.io/badge/AISezim-Educational%20%26%20Psychological%20OS-3525cd?style=for-the-badge&logo=react&logoColor=white)
 [![Next.js](https://img.shields.io/badge/Next.js-15.1.0-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%20%2B%20RLS-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4.17-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 
@@ -78,14 +90,14 @@
 graph TD
     Client["Next.js 15 (React 19 + Tailwind v3 + TypeScript)"]
     API["FastAPI 0.115 (Python 3.12, Pydantic v2, Uvicorn)"]
-    DB["PostgreSQL / Supabase Database"]
+    DB["Self-hosted PostgreSQL"]
     Auth["JWT HttpOnly Cookie + Role-Based Access Control"]
     PDF["Dynamic PDF Engine (jspdf + html2canvas)"]
 
     Client -->|REST API / Axios| API
-    Client -->|Direct Hydration & Realtime| DB
+    Client -->|Same-origin API proxy| API
     Client -->|On-the-Fly A4 Render| PDF
-    API -->|Service Role / PostgREST| DB
+    API -->|Private PostgREST API| DB
     API -->|Issue Claims| Auth
 ```
 
@@ -96,8 +108,8 @@ graph TD
 | **Data Viz & Charts**| Recharts 2.14 | Сравнительные бар-чарты параллелей, динамика стресса |
 | **PDF Generation** | jsPDF 4.2, html2canvas 1.4 *(Dynamic Import)* | Высокополигональный экспорт А4-ведомостей |
 | **Backend Core** | FastAPI, Uvicorn, Python 3.12 | Асинхронный REST API, валидация через Pydantic |
-| **Auth & Security**| JWT (jose / PyJWT), passlib (bcrypt) | HttpOnly Cookie сессии, RLS политики |
-| **Database & Cache**| PostgreSQL, Supabase, In-Memory `DepartmentStore` | Хранение сущностей, отказоустойчивый fallback |
+| **Auth & Security**| JWT (jose / PyJWT), passlib (bcrypt) | HttpOnly Cookie сессии, серверные проверки ролей |
+| **Database & Cache**| PostgreSQL 16, PostgREST 16.3, локальные Docker volumes | Хранение записей и аудио в собственном контуре |
 
 ---
 
@@ -129,8 +141,9 @@ flowchart TB
     end
 
     subgraph Storage [" Data Persistence & Storage Layer "]
-        SupabaseDB[("PostgreSQL (Supabase)")]
-        LocalStore["Resilient DepartmentStore (In-Memory Cache)"]
+        PostgresDB[("PostgreSQL")]
+        PostgREST["PostgREST · private network"]
+        Media["Local media volume"]
     end
 
     SA --> AL --> AdminRouter & DeptRouter
@@ -138,9 +151,10 @@ flowchart TB
     PS --> PL --> AnalyticsRouter & AssessRouter
     ST --> SL --> AssessRouter & MoodRouter & AuthRouter
 
-    AuthRouter & AdminRouter & DeptRouter --> LocalStore
-    LocalStore --> SupabaseDB
-    AssessRouter & AnalyticsRouter & MoodRouter --> SupabaseDB
+    AuthRouter & AdminRouter & DeptRouter --> PostgREST
+    PostgREST --> PostgresDB
+    AssessRouter & AnalyticsRouter & MoodRouter --> PostgREST
+    API --> Media
 ```
 
 ---
@@ -270,56 +284,30 @@ export async function exportComponentToPdf(element: HTMLElement, filename: strin
 
 ## 🚀 Быстрый старт
 
+Рекомендуемый запуск с собственной базой PostgreSQL через Docker Compose описан в [руководстве локального запуска и VPS](docs/VPS_DEPLOYMENT.md). Новый контур создаёт чистую базу; облачные данные автоматически не переносятся.
+
+```powershell
+./ops/prepare-env.ps1
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+Затем откройте `http://localhost:3000`. Для этого сценария должен быть запущен Docker Desktop.
+
+Создайте первого локального администратора после запуска:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.local.yml exec backend python create_superuser.py --email admin@local.test --name "Локальный администратор" --role admin
+```
+
+Локальный Compose включает серверные инструменты демонстрационных данных в режиме разработки. После создания администратора их можно вызвать из API-документации `http://localhost:8000/docs` (`POST /api/v1/admin/seed-demo-data`) для наполнения архива примерами результатов. VPS использует `APP_ENV=production` и отключает эти инструменты.
+
 ### Требования
-* **Node.js** >= 18.18.0 (рекомендуется v20+)
-* **Python** >= 3.11 (рекомендуется v3.12)
-* **npm** или **pnpm**
+* **Docker Desktop** с Compose plugin для рекомендуемого запуска.
+* Для запуска компонентов отдельно: **Node.js 22**, **Python 3.12**, **PostgreSQL 16** и **PostgREST 16**.
 
 ---
 
-### 1. Настройка и запуск Backend (FastAPI)
-
-```bash
-# Перейдите в каталог бэкенда
-cd backend
-
-# Создайте и активируйте виртуальное окружение
-python -m venv venv
-# Для Windows:
-venv\Scripts\activate
-# Для macOS/Linux:
-source venv/bin/activate
-
-# Установите зависимости
-pip install -r requirements.txt
-
-# Настройте переменные окружения (.env)
-cp .env.example .env
-
-# Запустите сервер разработки
-uvicorn app.main:app --reload --port 8000
-```
-API бэкенда будет доступно по адресу: **http://localhost:8000**  
-Интерактивная документация Swagger: **http://localhost:8000/docs**
-
----
-
-### 2. Настройка и запуск Frontend (Next.js)
-
-```bash
-# Перейдите в каталог фронтенда
-cd frontend
-
-# Установите npm-пакеты
-npm install
-
-# Настройте файл переменных окружения (.env.local)
-cp .env.local.example .env.local
-
-# Запустите dev-сервер
-npm run dev
-```
-Фронтенд платформы откроется по адресу: **http://localhost:3000**
+Отдельный запуск frontend/backend требует также запущенные PostgreSQL 16 и PostgREST 16, настройки локального `.env` и применённую схему `backend/migrations/standalone_init.sql`. Для удобной проверки интерфейса используйте Compose-команду выше; API документация доступна на **http://localhost:8000/docs**.
 
 ---
 
@@ -330,11 +318,11 @@ school-psychology-platform/
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/              # Эндпоинты: auth, admin, departments, assessments, analytics, mood
-│   │   ├── core/                # Конфигурация, DepartmentStore, Supabase клиент, безопасность
+│   │   ├── core/                # Конфигурация, клиент локального PostgREST, безопасность
 │   │   ├── models/              # Pydantic схемы валидации
 │   │   ├── services/            # Скоринг психологических тестов, бот-оператор
 │   │   └── data/                # Стандартизированные шкалы тестов (Айзенк, Филлипс, Климов)
-│   ├── migrations/              # SQL скрипты инициализации БД Supabase
+│   ├── migrations/              # Standalone PostgreSQL schema и SQL migrations
 │   └── requirements.txt         # Зависимости Python
 │
 ├── frontend/
@@ -349,7 +337,7 @@ school-psychology-platform/
 │   │   │   └── pdf/             # Шаблоны А4 PDF: ClassSummary, StudentIndividual, Academic
 │   │   ├── context/             # React Context: Auth, Language (KZ/RU)
 │   │   ├── hooks/               # useDebounce, кастомные хуки
-│   │   └── lib/                 # Клиенты API, supabase, генератор PDF, синтезатор звуков
+│   │   └── lib/                 # Клиенты API, генератор PDF, синтезатор звуков
 │   ├── public/                  # Статические ассеты, звуки оповещений
 │   └── package.json             # Скрипты и зависимости фронтенда
 │

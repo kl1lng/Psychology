@@ -32,6 +32,7 @@ export default function ArchivePage() {
   const [riskFilter, setRiskFilter] = useState('');
   const [selectedAssessment, setSelectedAssessment] = useState<AssessmentDetailReport | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [comparison, setComparison] = useState<any[]>([]);
 
   const RISK_OPTIONS: { value: string; labelRu: string; labelKk: string }[] = [
     { value: '', labelRu: 'Все риски', labelKk: 'Барлық деңгейлер' },
@@ -58,6 +59,12 @@ export default function ArchivePage() {
       })
       .finally(() => setLoading(false));
   }, [classFilter, riskFilter]);
+
+  useEffect(() => {
+    analyticsApi.getMonthlyComparison(classFilter || undefined)
+      .then((response) => setComparison(response.data?.items || []))
+      .catch(() => setComparison([]));
+  }, [classFilter]);
 
   // ─── 1. Export CSV with UTF-8 BOM for Excel ──────────────────────────────────
   function exportToCSV() {
@@ -87,7 +94,7 @@ export default function ArchivePage() {
     const cleanClass = classFilter ? classFilter.trim().replace(/\s+/g, '_') : 'all';
     const dateStr = new Date().toISOString().slice(0, 10);
     link.setAttribute('href', url);
-    link.setAttribute('download', `psychology_report_${cleanClass}_${dateStr}.csv`);
+    link.setAttribute('download', `Психологический_отчёт_${cleanClass}_${dateStr}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -135,17 +142,44 @@ export default function ArchivePage() {
           #printable-report, #printable-report * {
             visibility: visible;
           }
+          .report-print-overlay {
+            position: static !important;
+            inset: auto !important;
+            display: block !important;
+            overflow: visible !important;
+            padding: 0 !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+          }
           #printable-report {
             position: absolute;
             left: 0;
             top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 20px;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: white !important;
-            color: black !important;
+            color: #111827 !important;
             box-shadow: none !important;
             border: none !important;
+            border-radius: 0 !important;
+          }
+          #printable-report * {
+            color: #111827 !important;
+            background-color: transparent !important;
+            border-color: #d1d5db !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+          }
+          #printable-report table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          #printable-report tr,
+          #printable-report .page-break-avoid {
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
           .no-print {
             display: none !important;
@@ -214,6 +248,15 @@ export default function ArchivePage() {
           <span className="text-gray-900 dark:text-white font-semibold">{results.length}</span>
         </div>
       </div>
+
+      <section className="no-print rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{lang === 'kk' ? 'Сауалнамаларды 30 күн бойынша салыстыру' : 'Сравнение опросов за месяц'}</h2>
+        <p className="mt-1 text-sm text-gray-500">{lang === 'kk' ? 'Бір оқушының бір әдістеме бойынша соңғы 30 күндегі және алдыңғы 30 күндегі нәтижелері' : 'Повторные результаты одного ученика по одной методике: последние 30 дней и предыдущие 30 дней. Изменение баллов приведено без клинической оценки.'}</p>
+        {comparison.length === 0 ? <p className="mt-4 text-sm text-gray-500">{lang === 'kk' ? 'Салыстыру үшін екі кезеңде де нәтижелер қажет.' : 'Для сравнения нужны результаты одной методики в обоих периодах.'}</p> : <div className="mt-4 space-y-3">{comparison.map((item) => <div key={`${item.student_id}-${item.test_id}`} className="rounded-xl border border-gray-200 p-4 dark:border-neutral-700">
+          <div className="flex flex-wrap justify-between gap-2"><div className="font-semibold">{item.student_name} <span className="font-normal text-gray-500">· {item.class_id}</span></div><div className="text-sm text-gray-600 dark:text-gray-300">{item.test_name}</div></div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">{(item.current.scales || []).map((scale: any) => { const before = (item.previous.scales || []).find((old: any) => old.name === scale.name); const delta = before ? scale.score - before.score : null; return <div key={scale.name} className="rounded-lg bg-gray-50 p-3 text-sm dark:bg-neutral-800"><div className="font-medium">{scale.name}</div><div className="mt-1 text-gray-600 dark:text-gray-300">{lang === 'kk' ? 'Бұрын' : 'Ранее'}: {before ? `${before.score} / ${before.max_score}` : '—'} <span className="mx-1">→</span> {lang === 'kk' ? 'Соңғы' : 'Последний'}: {scale.score} / {scale.max_score}{delta !== null && <span className="ml-2 font-semibold">({delta > 0 ? '+' : ''}{delta})</span>}</div></div>; })}</div>
+        </div>)}</div>}
+      </section>
 
       {/* Desktop Table View (hidden md:block) */}
       <div className="bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-2xl overflow-hidden no-print hidden md:block shadow-sm">
@@ -408,7 +451,7 @@ export default function ArchivePage() {
 
       {/* ─── Official Assessment Modal (Printable) ──────────────────────────── */}
       {selectedAssessment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto no-print">
+        <div className="report-print-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
           <div
             id="printable-report"
             className="bg-zinc-900 border border-white/10 rounded-3xl max-w-2xl w-full p-8 text-white space-y-6 shadow-2xl relative my-8"

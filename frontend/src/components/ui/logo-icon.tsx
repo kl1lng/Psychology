@@ -12,7 +12,7 @@ export const LogoIcon: React.FC<LogoIconProps> = ({ className = 'w-8 h-8' }) => 
     className={className}
     fill="currentColor"
     preserveAspectRatio="xMidYMid meet"
-    aria-label="AISezim Logo: Сердце и Мозг"
+    aria-label="Логотип AISezim: сердце и мозг"
   >
     <g
       transform="translate(0.000000,176.000000) scale(0.100000,-0.100000)"

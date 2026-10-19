@@ -92,7 +92,7 @@ export default function QAModerationPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="section-title">
-            {lang === 'kk' ? 'Анонимді сұрақтар модерациясы (Q&A)' : 'Модерация и ответы на вопросы (Q&A)'}
+            {lang === 'kk' ? 'Анонимді сұрақтар модерациясы' : 'Модерация и ответы на вопросы'}
           </h1>
           <p className="section-subtitle">
             {lang === 'kk'
@@ -268,7 +268,7 @@ export default function QAModerationPage() {
                   onChange={(e) => setPublishImmediately(e.target.checked)}
                   className="rounded border-gray-600 text-brand-500 focus:ring-brand-500"
                 />
-                <span>{lang === 'kk' ? 'Анонимді сұрақ қабырғасында барлығына жариялау' : 'Опубликовать на публичной стене Q&A'}</span>
+                <span>{lang === 'kk' ? 'Анонимді сұрақ қабырғасында барлығына жариялау' : 'Опубликовать на публичной стене вопросов'}</span>
               </label>
 
               <div className="flex justify-end gap-2 pt-2">

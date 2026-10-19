@@ -100,7 +100,7 @@ export default function StudentQAPage() {
       {/* Header */}
       <div>
         <h1 className="section-title">
-          {lang === 'kk' ? 'Анонимді сұрақ-жауап қабырғасы (Q&A)' : 'Анонимная стена вопросов психологу'}
+          {lang === 'kk' ? 'Анонимді сұрақ-жауап қабырғасы' : 'Анонимная стена вопросов психологу'}
         </h1>
         <p className="section-subtitle">
           {lang === 'kk'

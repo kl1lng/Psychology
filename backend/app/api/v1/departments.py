@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
-from app.core.supabase import get_supabase
+from app.core.database import get_database
 from app.core.departments_store import DepartmentStore
 from app.schemas.department import (
     DepartmentCreate,
@@ -14,14 +14,14 @@ router = APIRouter(prefix="/departments", tags=["Departments"])
 
 
 @router.get("/", response_model=List[DepartmentOut])
-async def list_departments():
-    """List all school departments (resilient with Supabase & fallback)."""
+async def list_departments(_auth: dict = Depends(get_current_admin)):
+    """List school departments from the local database with a small in-memory fallback."""
     departments = DepartmentStore.list_all()
     return [DepartmentOut(**d) for d in departments]
 
 
 @router.get("/{dept_id}", response_model=DepartmentWithTeachers)
-async def get_department(dept_id: str):
+async def get_department(dept_id: str, _auth: dict = Depends(get_current_admin)):
     """Get department details along with its assigned teachers."""
     dept_data = DepartmentStore.get_by_id(dept_id)
     if not dept_data:
@@ -30,7 +30,7 @@ async def get_department(dept_id: str):
     # Fetch teachers associated with this department if table exists
     teachers = []
     try:
-        sb = get_supabase()
+        sb = get_database()
         teachers_res = sb.table("users").select("id, email, full_name, role, created_at").eq("department_id", dept_id).execute()
         teachers = teachers_res.data or []
     except Exception:

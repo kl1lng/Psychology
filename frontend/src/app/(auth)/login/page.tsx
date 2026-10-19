@@ -3,13 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Eye, EyeOff, LogIn, UserX } from 'lucide-react';
+import { Eye, EyeOff, LogIn, UserX, FlaskConical } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { LogoIcon } from '@/components/ui/logo-icon';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, guestLogin } = useAuth();
+  const { login, guestLogin, demoLogin } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -36,7 +36,7 @@ export default function LoginPage() {
       const msg = err && typeof err === 'object' && 'response' in err
         ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail)
         : null;
-      setError(msg || 'Ошибка входа. Проверьте email и пароль.');
+      setError(msg || 'Ошибка входа. Проверьте электронную почту и пароль.');
     } finally {
       setLoading(false);
     }
@@ -55,6 +55,16 @@ export default function LoginPage() {
       setError(msg || 'Ошибка создания анонимной сессии');
     } finally {
       setGuestLoading(false);
+    }
+  }
+
+  function handleDemoLogin() {
+    setError('');
+    try {
+      demoLogin();
+      router.push('/dashboard');
+    } catch {
+      setError('Демо-вход доступен только в локальной разработке.');
     }
   }
 
@@ -90,7 +100,7 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-3.5 sm:space-y-4">
             <div>
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Email
+                Электронная почта
               </label>
               <input
                 id="login-email"
@@ -170,6 +180,17 @@ export default function LoginPage() {
           <p className="text-[11px] text-zinc-400 dark:text-zinc-500 text-center mt-2">
             Без регистрации. Результаты сохранятся на этом устройстве.
           </p>
+          {process.env.NODE_ENV === 'development' && (
+            <button
+              id="btn-demo-psychologist"
+              type="button"
+              onClick={handleDemoLogin}
+              className="w-full mt-3 py-2.5 px-4 rounded-2xl font-semibold text-sm bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-900 transition-colors flex items-center justify-center gap-2"
+            >
+              <FlaskConical size={16} />
+              Демо: посмотреть отчёты опросов
+            </button>
+          )}
         </div>
 
         {/* Footer Link */}

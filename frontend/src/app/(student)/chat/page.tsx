@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Phone, User, Clock, MessageSquare, Calendar } from 'lucide-react';
 import { LogoIcon } from '@/components/ui/logo-icon';
 import { chatApi, appointmentsApi } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
 import { ChatMessage, DialogStatus, Dialog } from '@/types/chat';
 import { formatTime } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
@@ -20,6 +19,7 @@ export default function ChatPage() {
   const [typing, setTyping] = useState(false);
   const [quickActions, setQuickActions] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const seenMessageIds = useRef(new Set<string>());
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -43,6 +43,7 @@ export default function ChatPage() {
           if (data.id) setDialogId(data.id);
           if (data.status) setStatus(data.status);
           if (data.messages && data.messages.length > 0) {
+            seenMessageIds.current = new Set(data.messages.map((message) => message.id));
             setMessages(data.messages);
           }
         }
@@ -52,65 +53,48 @@ export default function ChatPage() {
       });
   }, [getStudentId]);
 
-  // ─── 2. Supabase Realtime Subscription ───────────────────────────────────────
+  // Poll through the authenticated API so dialog access is checked by the server.
   useEffect(() => {
     if (!dialogId) return;
-
-    const channel = supabase
-      .channel(`student-dialog:${dialogId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `dialog_id=eq.${dialogId}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as ChatMessage;
-          setTyping(false);
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-
-            const optimisticIndex = prev.findIndex(
-              (m) =>
-                m.sender_role === newMsg.sender_role &&
-                m.content === newMsg.content &&
-                m.id.startsWith('temp_')
-            );
-            if (optimisticIndex !== -1) {
-              const updated = [...prev];
-              updated[optimisticIndex] = newMsg;
-              return updated;
-            }
-
-            if (newMsg.sender_role === 'PSYCHOLOGIST' || newMsg.sender_role === 'BOT') {
-              playNotificationChime();
-            }
-
-            return [...prev, newMsg];
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'dialogs',
-          filter: `id=eq.${dialogId}`,
-        },
-        (payload) => {
-          const updatedDialog = payload.new as Dialog;
-          if (updatedDialog?.status) {
-            setStatus(updatedDialog.status);
-          }
-        }
-      )
-      .subscribe();
-
+    let active = true;
+    let polling = false;
+    const refreshDialog = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const res = await chatApi.getHistory(dialogId);
+        if (!active || !res.data) return;
+        const dialog = res.data as Dialog;
+        if (dialog.status) setStatus(dialog.status);
+        const latestMessages = dialog.messages || [];
+        const received = latestMessages.filter((message) => !seenMessageIds.current.has(message.id));
+        seenMessageIds.current = new Set(latestMessages.map((message) => message.id));
+        if (received.some((message) => message.sender_role === 'PSYCHOLOGIST')) playNotificationChime();
+        setTyping(false);
+        setMessages((previous) => {
+          const pendingMessages = previous.filter((message) =>
+            /^(temp_|bot_|act_|req_)/.test(message.id) &&
+            !latestMessages.some((saved) => saved.sender_role === message.sender_role && saved.content === message.content)
+          );
+          return [...latestMessages, ...pendingMessages].sort(
+            (left, right) => left.created_at.localeCompare(right.created_at)
+          );
+        });
+      } catch {
+        // Keep the current conversation visible during temporary API outages.
+      } finally {
+        polling = false;
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshDialog();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 4000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [dialogId]);
 
