@@ -32,6 +32,6 @@ def get_database() -> SyncPostgrestClient:
                 settings.internal_database_jwt_secret,
                 algorithm="HS256",
             )
-            _client.auth(f"Bearer {token}")
+            _client.auth(token)
             _token_expires_at = expires.timestamp()
         return _client
